@@ -71,6 +71,7 @@ DefaultList<int> DefaultInts =
     {"Instance*.Gdb.ARM7.Port", 3334},
     {"Instance*.Gdb.ARM9.Port", 3333},
 #endif
+    {"Instance*.Stream.Port", 6820},
     {"LAN.HostNumPlayers", 16},
 };
 
@@ -324,6 +325,9 @@ LegacyEntry LegacyFile[] =
     {"GdbARM7BreakOnStartup", 1, "Gdb.ARM7.BreakOnStartup", true},
     {"GdbARM9BreakOnStartup", 1, "Gdb.ARM9.BreakOnStartup", true},
 #endif
+
+    {"StreamEnabled", 1, "Stream.Enabled", false},
+    {"StreamPort", 0, "Stream.Port", true},
 
     {"Camera0_InputType", 0, "DSi.Camera0.InputType", false},
     {"Camera0_ImagePath", 2, "DSi.Camera0.ImagePath", false},

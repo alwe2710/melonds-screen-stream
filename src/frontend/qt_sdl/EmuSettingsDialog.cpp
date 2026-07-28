@@ -106,8 +106,12 @@ EmuSettingsDialog::EmuSettingsDialog(QWidget* parent) : QDialog(parent), ui(new 
     ui->cbGdbBOSA9->setDisabled(true);
 #endif
 
+    ui->cbStreamEnabled->setChecked(instcfg.GetBool("Stream.Enabled"));
+    ui->intStreamPort->setValue(instcfg.GetInt("Stream.Port"));
+
     on_chkEnableJIT_toggled();
     on_cbGdbEnabled_toggled();
+    on_cbStreamEnabled_toggled();
     on_chkExternalBIOS_toggled();
     on_chkDSiExternalBIOS_toggled();
 
@@ -300,6 +304,8 @@ void EmuSettingsDialog::done(int r)
             instcfg.SetBool("Gdb.ARM7.BreakOnStartup", ui->cbGdbBOSA7->isChecked());
             instcfg.SetBool("Gdb.ARM9.BreakOnStartup", ui->cbGdbBOSA9->isChecked());
 #endif
+            instcfg.SetBool("Stream.Enabled", ui->cbStreamEnabled->isChecked());
+            instcfg.SetInt("Stream.Port", ui->intStreamPort->value());
 
             cfg.SetInt("Emu.ConsoleType", ui->cbxConsoleType->currentIndex());
             cfg.SetBool("Emu.DirectBoot", ui->chkDirectBoot->isChecked());
@@ -574,6 +580,12 @@ void EmuSettingsDialog::on_cbGdbEnabled_toggled()
     ui->intGdbPortA9->setDisabled(disabled);
     ui->cbGdbBOSA7->setDisabled(disabled);
     ui->cbGdbBOSA9->setDisabled(disabled);
+}
+
+void EmuSettingsDialog::on_cbStreamEnabled_toggled()
+{
+    bool disabled = !ui->cbStreamEnabled->isChecked();
+    ui->intStreamPort->setDisabled(disabled);
 }
 
 void EmuSettingsDialog::on_chkExternalBIOS_toggled()

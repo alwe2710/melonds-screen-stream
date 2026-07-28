@@ -81,6 +81,14 @@ struct GDBArgs
     bool ARM9BreakOnStartup = false;
 };
 
+/// How the NDS_BOTTOM_SCREEN finlink streaming server (src/streaming/)
+/// should be configured. Mirrors GDBArgs's shape/usage: std::nullopt means
+/// disabled, see NDS::SetStreamingArgs().
+struct StreamArgs
+{
+    u16 Port = 0;
+};
+
 /// Arguments to pass into the NDS constructor.
 /// New fields here should have default values if possible.
 struct NDSArgs
@@ -117,6 +125,12 @@ struct NDSArgs
     /// Defaults to the software renderer.
     /// Can be changed later at any time.
     std::unique_ptr<melonDS::Renderer> Renderer = nullptr;
+
+    /// How the bottom screen streaming server should be configured.
+    /// Defaults to disabled. Added after Renderer so existing positional
+    /// aggregate-initializers of NDSArgs (e.g. EmuInstance::updateConsole())
+    /// don't need updating -- they just get this field's default.
+    std::optional<StreamArgs> Stream = std::nullopt;
 };
 
 /// Arguments to pass into the DSi constructor.

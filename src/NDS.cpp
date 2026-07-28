@@ -36,6 +36,7 @@
 #include "FreeBIOS.h"
 #include "Args.h"
 #include "version.h"
+#include "streaming/BottomScreenStream.h"
 
 #include "DSi.h"
 #include "DSi_SPI_TSC.h"
@@ -132,6 +133,12 @@ NDS::NDS(NDSArgs&& args, int type, void* userdata) noexcept :
     MainRAM = JIT.Memory.GetMainRAM();
     SharedWRAM = JIT.Memory.GetSharedWRAM();
     ARM7WRAM = JIT.Memory.GetARM7WRAM();
+
+    // GPU is already fully constructed by this point (it's higher in the
+    // member-init list above), so it's safe for BottomScreenStream to be
+    // findable via GetStream() from GPU::FinishFrame() as soon as this
+    // constructor returns.
+    SetStreamingArgs(args.Stream);
 }
 
 NDS::~NDS() noexcept
@@ -239,6 +246,13 @@ void NDS::SetGdbArgs(std::optional<GDBArgs> args) noexcept
     EnableGDBStub = args.has_value();
 }
 #endif
+
+void NDS::SetStreamingArgs(std::optional<StreamArgs> args) noexcept
+{
+    Stream.reset();
+    if (args)
+        Stream = std::make_unique<Streaming::BottomScreenStream>(*this, args->Port);
+}
 
 void NDS::InitTimings()
 {

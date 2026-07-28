@@ -1296,6 +1296,12 @@ bool EmuInstance::updateConsole() noexcept
     std::optional<GDBArgs> gdbargs = std::nullopt;
 #endif
 
+    Config::Table streamopt = localCfg.GetTable("Stream");
+    StreamArgs _streamargs {
+            static_cast<u16>(streamopt.GetInt("Port")),
+    };
+    auto streamargs = streamopt.GetBool("Enabled") ? std::make_optional(_streamargs) : std::nullopt;
+
     NDSArgs ndsargs {
             std::move(arm9bios),
             std::move(arm7bios),
@@ -1305,6 +1311,8 @@ bool EmuInstance::updateConsole() noexcept
             static_cast<AudioInterpolation>(globalCfg.GetInt("Audio.Interpolation")),
             (double) audioFreq,
             gdbargs,
+            nullptr, // Renderer: default (software), matching EmuThread's forced choice while streaming.
+            streamargs,
     };
     NDSArgs* args = &ndsargs;
 
@@ -1360,6 +1368,7 @@ bool EmuInstance::updateConsole() noexcept
         nds->SetFirmware(std::move(args->Firmware));
         nds->SetJITArgs(args->JIT);
         nds->SetGdbArgs(args->GDB);
+        nds->SetStreamingArgs(args->Stream);
         nds->SPU.SetInterpolation(args->Interpolation);
         nds->SPU.SetDegrade10Bit(args->BitDepth);
 

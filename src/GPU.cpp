@@ -23,6 +23,7 @@
 #include "ARMJIT.h"
 
 #include "GPU_Soft.h"
+#include "streaming/BottomScreenStream.h"
 
 namespace melonDS
 {
@@ -1185,6 +1186,21 @@ void GPU::StartHBlank(u32 line) noexcept
 void GPU::FinishFrame(u32 lines) noexcept
 {
     Rend->SwapBuffers();
+
+    // Hand the just-completed bottom screen off to the streaming server, if
+    // one is attached -- this runs on the emu/CPU thread (FinishFrame() is
+    // scheduled as a timing event), so it's the one safe synchronization
+    // point BottomScreenStream::OnFrameEnd() relies on (see that class's own
+    // comment). Only meaningful with a RAM-backed renderer (GetFramebuffers
+    // returns false for e.g. the OpenGL renderer, in which case there's
+    // nothing to capture from here).
+    if (Streaming::BottomScreenStream* stream = NDS.GetStream())
+    {
+        void* top;
+        void* bottom;
+        if (GetFramebuffers(&top, &bottom))
+            stream->OnFrameEnd(static_cast<const u32*>(bottom));
+    }
 
     TotalScanlines = lines;
 

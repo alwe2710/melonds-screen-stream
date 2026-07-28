@@ -668,6 +668,40 @@
          </property>
         </widget>
        </item>
+       <item row="6" column="0" colspan="3">
+        <widget class="QCheckBox" name="cbStreamEnabled">
+         <property name="text">
+          <string>Enable bottom screen streaming (finlink)</string>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="0">
+        <widget class="QLabel" name="label_streamPort">
+         <property name="text">
+          <string>Port</string>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="1" colspan="5">
+        <widget class="QSpinBox" name="intStreamPort">
+         <property name="minimum">
+          <number>1000</number>
+         </property>
+         <property name="maximum">
+          <number>65535</number>
+         </property>
+         <property name="value">
+          <number>6820</number>
+         </property>
+        </widget>
+       </item>
+       <item row="8" column="0" colspan="7">
+        <widget class="QLabel" name="label_streamNote">
+         <property name="text">
+          <string>Note: forces the software 3D renderer while enabled (bottom screen capture needs a RAM framebuffer)</string>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </widget>

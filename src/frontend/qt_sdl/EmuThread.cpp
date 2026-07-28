@@ -37,6 +37,7 @@
 
 #include "Args.h"
 #include "NDS.h"
+#include "streaming/BottomScreenStream.h"
 #include "NDSCart.h"
 #include "GBACart.h"
 #include "GPU.h"
@@ -118,7 +119,13 @@ void EmuThread::run()
 
     //videoSettingsDirty = false;
 
-    if (emuInstance->usesOpenGL())
+    // Bottom screen streaming needs a RAM-backed framebuffer to capture from
+    // (GPU::GetFramebuffers() -- see streaming/BottomScreenStream.h's own
+    // comment), which only the software renderer provides. Forced here
+    // rather than left to the user to notice and switch manually.
+    bool forceSoftwareRenderer = emuInstance->getLocalConfig().GetBool("Stream.Enabled");
+
+    if (!forceSoftwareRenderer && emuInstance->usesOpenGL())
     {
         emuInstance->initOpenGL(0);
 
@@ -254,7 +261,22 @@ void EmuThread::run()
             // process input and hotkeys
             emuInstance->nds->SetKeyMask(emuInstance->inputMask);
 
-            if (emuInstance->isTouching)
+            // A remote finlink client streaming the bottom screen (see
+            // streaming/BottomScreenStream.h) wholesale overrides touch
+            // only -- buttons (SetKeyMask above) always stay local. nullopt
+            // whenever no client is in an active session, in which case
+            // local mouse/touch input is used exactly as before.
+            melonDS::Streaming::BottomScreenStream* stream = emuInstance->nds->GetStream();
+            std::optional<melonDS::Streaming::TouchOverride> touchOverride =
+                stream ? stream->GetTouchOverride() : std::nullopt;
+            if (touchOverride)
+            {
+                if (touchOverride->Pressed)
+                    emuInstance->nds->TouchScreen(touchOverride->X, touchOverride->Y);
+                else
+                    emuInstance->nds->ReleaseScreen();
+            }
+            else if (emuInstance->isTouching)
                 emuInstance->nds->TouchScreen(emuInstance->touchX, emuInstance->touchY);
             else
                 emuInstance->nds->ReleaseScreen();

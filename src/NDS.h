@@ -246,6 +246,8 @@ class AREngine;
 class GPU;
 class ARMJIT;
 
+namespace Streaming { class BottomScreenStream; }
+
 class NDS
 {
 private:
@@ -330,6 +332,13 @@ public: // TODO: Encapsulate the rest of these members
     GBACart::GBACartSlot GBACartSlot;
     melonDS::GPU GPU;
     melonDS::AREngine AREngine;
+
+    // NDS_BOTTOM_SCREEN finlink streaming server, see SetStreamingArgs() and
+    // GetStream(). nullptr unless explicitly configured -- default-
+    // constructed here (to nullptr), actually (re)configured in the NDS
+    // constructor's body and in SetStreamingArgs(), both after GPU already
+    // exists (needed for GPU::FinishFrame() to find it via GetStream()).
+    std::unique_ptr<Streaming::BottomScreenStream> Stream;
 
     const u32 ARM7WRAMSize = 0x10000;
     u8* ARM7WRAM;
@@ -504,6 +513,18 @@ public: // TODO: Encapsulate the rest of these members
 #else
     void SetGdbArgs(std::optional<GDBArgs> args) noexcept {}
 #endif
+
+    // (Re)configures the NDS_BOTTOM_SCREEN streaming server, mirroring
+    // SetGdbArgs()'s idempotent reconfigure-or-tear-down-and-recreate idiom:
+    // std::nullopt tears the server down, a value (re)creates it, called
+    // every time the console is (re)created (see
+    // EmuInstance::updateConsole()), not just once at startup.
+    void SetStreamingArgs(std::optional<StreamArgs> args) noexcept;
+
+    // nullptr unless bottom screen streaming is currently configured. Used
+    // by GPU::FinishFrame() (video capture) and by the Qt frontend's
+    // per-frame touch-apply site (EmuThread.cpp, touch override).
+    [[nodiscard]] Streaming::BottomScreenStream* GetStream() const noexcept { return Stream.get(); }
 
 protected:
     void InitTimings();

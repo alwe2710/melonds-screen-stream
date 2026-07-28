@@ -81,6 +81,7 @@ private slots:
     void on_chkDSiExternalBIOS_toggled();
 
     void on_cbGdbEnabled_toggled();
+    void on_cbStreamEnabled_toggled();
 
 private:
     void verifyFirmware();
