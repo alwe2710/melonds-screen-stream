@@ -27,12 +27,22 @@ extern "C" {
 #define FINLINK_WS_KEY_BUF_LEN (FINLINK_WS_KEY_LEN + 1)
 #define FINLINK_WS_ACCEPT_LEN 28  /* base64(SHA1 digest), no NUL */
 
-/* Largest payload finlink_ws_parse_frame() will accept. Comfortably above
- * any real video/audio/input frame (largest is one uncompressed 240x160
- * RGB565 video frame, 76800 bytes) -- exists to bound how much a corrupt or
- * hostile peer can make the caller buffer before finlink_ws_parse_frame()
- * gives up, which matters on memory-constrained homebrew targets. */
-#define FINLINK_WS_MAX_FRAME_PAYLOAD (1u << 20)
+/* Largest payload finlink_ws_parse_frame() will accept -- exists to bound
+ * how much a corrupt or hostile peer can make the caller buffer before
+ * finlink_ws_parse_frame() gives up, which matters on memory-constrained
+ * homebrew targets. Originally 1<<20 (1 MiB), "comfortably above any real
+ * video/audio/input frame" back when every stream type had a small fixed
+ * native resolution (largest was one uncompressed 240x160 RGB565 video
+ * frame, 76800 bytes) -- no longer true since melonDS's NDS_BOTTOM_SCREEN
+ * stream can source frames from its OpenGL renderer's own upscaling (up to
+ * 16x, i.e. 4096x3072), whose *uncompressed* RGB565 size alone is
+ * ~25.2 MiB, occasionally exceeding the old 1 MiB cap even after deflate
+ * depending on scene complexity (busier content compresses worse) --
+ * clients that hit this were disconnecting outright on every frame over
+ * the cap ("the stream crashes" as scale factor goes up). Raised to
+ * comfortably cover that worst case with headroom; still a bounded cap,
+ * not unlimited. */
+#define FINLINK_WS_MAX_FRAME_PAYLOAD (32u << 20)
 
 /* --- Handshake --- */
 
