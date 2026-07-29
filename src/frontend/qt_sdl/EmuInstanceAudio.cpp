@@ -360,6 +360,20 @@ void EmuInstance::setupMicInputData()
     micDeviceName = globalCfg.GetString("Mic.Device");
     micWavPath = globalCfg.GetString("Mic.WavPath");
 
+    // Whenever bottom-screen streaming is enabled (not just while a client
+    // happens to be connected -- nds->GetStream() is non-null for the whole
+    // session once the feature is turned on, see NDS::SetStreamingArgs()),
+    // the mic is forced to the Finlink input type regardless of this
+    // setting: a locally-selected input source would silently never be
+    // heard by a connected client, since nothing else forwards it there, so
+    // leaving a different type "selected" but effectively moot is more
+    // confusing than forcing the one type that actually reaches the client
+    // (mirrors EmuThread.cpp's touch/button input override under the same
+    // condition, and AudioSettingsDialog's UI, which grays out the mic mode
+    // radio buttons under the same condition).
+    if (nds && nds->GetStream())
+        micInputType = micInputType_Finlink;
+
     switch (micInputType)
     {
         case micInputType_Silence:

@@ -16,6 +16,8 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
+#include <cstring>
+
 #include "NDS.h"
 #include "GPU_Soft.h"
 #include "GPU_ColorOp.h"
@@ -449,6 +451,18 @@ bool SoftRenderer::GetFramebuffers(void** top, void** bottom)
     int frontbuf = BackBuffer ^ 1;
     *top = Framebuffer[frontbuf][0];
     *bottom = Framebuffer[frontbuf][1];
+    return true;
+}
+
+bool SoftRenderer::CaptureBottomScreenBGRA8(std::vector<u8>& out, u32& outWidth, u32& outHeight)
+{
+    // Always native resolution -- this renderer has no upscaling.
+    outWidth = 256;
+    outHeight = 192;
+    const int frontbuf = BackBuffer ^ 1;
+    const size_t byteSize = (size_t)outWidth * outHeight * 4;
+    out.resize(byteSize);
+    memcpy(out.data(), Framebuffer[frontbuf][1], byteSize);
     return true;
 }
 

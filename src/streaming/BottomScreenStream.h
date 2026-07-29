@@ -81,10 +81,13 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
 #include <finlink/protocol.h>
+
+#include "FinlinkMessages.h"
 
 namespace melonDS
 {
@@ -103,10 +106,16 @@ public:
     BottomScreenStream& operator=(const BottomScreenStream&) = delete;
 
     // Called from GPU::FinishFrame(), on the emu thread, once per emulated
-    // frame. `bottomBgra` points at 256*192 32-bit BGRA pixels (see
-    // GPU_Soft.h's Framebuffer[frontbuf][1]) -- copied out immediately, not
-    // retained past this call.
-    void OnFrameEnd(const uint32_t* bottomBgra) noexcept;
+    // frame. `bottomBgra` points at width*height 32-bit BGRA pixels, top-
+    // down row-major (see GPU_Soft.h's Framebuffer[frontbuf][1], or
+    // GLRenderer::CaptureBottomScreenBGRA8() for the OpenGL renderer's own
+    // upscaled equivalent) -- copied out immediately, not retained past
+    // this call. width/height vary with the active renderer's resolution
+    // (native 256x192 for the software renderer, upscaled for the OpenGL
+    // one), unlike the fixed kStreamWidth/kStreamHeight this used to
+    // assume -- RunSession() reads back whatever was captured most
+    // recently instead of hardcoding those constants.
+    void OnFrameEnd(const uint32_t* bottomBgra, uint32_t width, uint32_t height) noexcept;
 
     // Touch + buttons, combined per finlink's "touch_and_buttons"
     // input_encoding (finlink_touch_and_buttons, finlink/protocol.h) --
@@ -132,11 +141,25 @@ private:
     void ServeConnection(int fd);
     void RunSession(int fd);
 
+    // UDP discovery beacon (finlink/discovery.h, docs/protocol.md's
+    // "Discovery-Beacon (UDP)") -- broadcasts a finlink_beacon JSON payload
+    // on FINLINK_BEACON_PORT every ~2s so the Android client's network
+    // search can find this instance, mirroring Cemu's Beacon and azahar's
+    // Core::Streaming::Beacon. Kept as a plain thread here (sharing `Stop`)
+    // rather than a separate RAII object: ~BottomScreenStream() explicitly
+    // stops/joins every socket-using thread in its body *before* the
+    // WSACleanup() at the very end, and a separately-owned object torn down
+    // via member-destruction order (which runs after the destructor body)
+    // would call WSA socket functions after that cleanup on Windows.
+    void BeaconLoop();
+    std::string BuildBeaconMessage(const std::string& localHost) const;
+
     melonDS::NDS& NDS;
     uint16_t Port;
 
     int ListenFd = -1;
     std::thread AcceptThread;
+    std::thread BeaconThread;
     std::atomic_bool Stop{false};
 
     std::mutex ConnectionThreadsMutex;
@@ -147,7 +170,9 @@ private:
     std::atomic_bool Active{false};
 
     std::mutex FrameMutex;
-    std::vector<uint8_t> LatestFrameBgra; // 256*192*4 bytes
+    std::vector<uint8_t> LatestFrameBgra; // LatestFrameWidth*LatestFrameHeight*4 bytes
+    uint32_t LatestFrameWidth = kStreamWidth;
+    uint32_t LatestFrameHeight = kStreamHeight;
     uint64_t FrameId = 0;
 
     std::atomic_bool Streaming{false}; // session_ready sent, input override live

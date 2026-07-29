@@ -81,6 +81,12 @@ private:
     int oldVolume;
     bool oldDSiSync;
     QButtonGroup* grpMicMode;
+    // True when the mic mode group was grayed out at construction time
+    // because bottom-screen streaming forces it to Finlink (see
+    // AudioSettingsDialog.cpp's constructor) -- on_AudioSettingsDialog_
+    // accepted() uses this to leave Mic.InputType untouched in that case,
+    // rather than persisting the forced (not user-chosen) selection.
+    bool micModeForced = false;
 
     int volume;
     bool dsiSync;

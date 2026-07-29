@@ -1191,15 +1191,19 @@ void GPU::FinishFrame(u32 lines) noexcept
     // one is attached -- this runs on the emu/CPU thread (FinishFrame() is
     // scheduled as a timing event), so it's the one safe synchronization
     // point BottomScreenStream::OnFrameEnd() relies on (see that class's own
-    // comment). Only meaningful with a RAM-backed renderer (GetFramebuffers
-    // returns false for e.g. the OpenGL renderer, in which case there's
-    // nothing to capture from here).
+    // comment), and for the OpenGL renderer specifically, the one point
+    // guaranteed to have that renderer's GL context current (EmuThread.cpp
+    // keeps it current for its whole per-frame loop, which FinishFrame() is
+    // part of). CaptureBottomScreenBGRA8() works for any renderer, unlike
+    // GetFramebuffers() above (RAM-backed renderers only), and reports the
+    // actual current resolution -- native for SoftRenderer, upscaled by
+    // the OpenGL renderer's own scale factor for GLRenderer.
     if (Streaming::BottomScreenStream* stream = NDS.GetStream())
     {
-        void* top;
-        void* bottom;
-        if (GetFramebuffers(&top, &bottom))
-            stream->OnFrameEnd(static_cast<const u32*>(bottom));
+        std::vector<u8> bottomBgra;
+        u32 width, height;
+        if (Rend->CaptureBottomScreenBGRA8(bottomBgra, width, height))
+            stream->OnFrameEnd(reinterpret_cast<const u32*>(bottomBgra.data()), width, height);
     }
 
     TotalScanlines = lines;

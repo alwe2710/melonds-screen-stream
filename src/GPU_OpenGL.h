@@ -51,6 +51,7 @@ public:
     void SyncVRAMCapture(u32 bank, u32 start, u32 len, bool complete) override;
 
     bool GetFramebuffers(void** top, void** bottom) override;
+    bool CaptureBottomScreenBGRA8(std::vector<u8>& out, u32& outWidth, u32& outHeight) override;
 
     bool NeedsShaderCompile() override;
     void ShaderCompileStep(int& current, int& count) override;

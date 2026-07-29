@@ -32,9 +32,12 @@
 
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <sstream>
 
 #include "finlink/deflate.h"
+#include "finlink/discovery.h"
 #include "finlink/endian.h"
 #include "finlink/protocol.h"
 #include "FinlinkMessages.h"
@@ -79,10 +82,11 @@ void ConvertBgra8ToRgb565(const uint8_t* bgra8, uint32_t width, uint32_t height,
     }
 }
 
-bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, const std::atomic_bool& stop)
+bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, uint32_t height,
+                    const std::atomic_bool& stop)
 {
     std::vector<uint8_t> rgb565;
-    ConvertBgra8ToRgb565(bgra8.data(), kStreamWidth, kStreamHeight, rgb565);
+    ConvertBgra8ToRgb565(bgra8.data(), width, height, rgb565);
 
     std::vector<uint8_t> compressed(finlink_deflate_max_size(rgb565.size()));
     size_t compressedSize = 0;
@@ -97,12 +101,79 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, const std::atomic
     std::vector<uint8_t> message;
     message.reserve(10 + compressed.size());
     message.push_back((uint8_t)FINLINK_MSG_VIDEO);
-    AppendU32LE(message, kStreamWidth);
-    AppendU32LE(message, kStreamHeight);
+    AppendU32LE(message, width);
+    AppendU32LE(message, height);
     message.push_back(0); // format = 0: full frame, raw (non-indexed, non-tiled) RGB565.
     message.insert(message.end(), compressed.begin(), compressed.end());
 
     return SendWebSocketBinaryFrame(fd, message, stop);
+}
+
+// UDP "connect" (nothing actually leaves the machine for a connectionless
+// socket -- it just resolves local routing) to a well-known external
+// address, then reads back which local interface/address the OS picked for
+// that route. Doesn't require the address to be reachable, only routable --
+// same trick azahar's Beacon::ProbeLocalHost() uses via boost::asio, ported
+// to plain BSD/Winsock sockets since melonDS doesn't depend on boost.
+std::string ProbeLocalHost()
+{
+    const int probeFd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (probeFd < 0)
+        return std::string();
+
+    struct sockaddr_in target{};
+    target.sin_family = AF_INET;
+    target.sin_port = htons(80);
+    inet_pton(AF_INET, "8.8.8.8", &target.sin_addr);
+
+    std::string result;
+    if (connect(probeFd, (const struct sockaddr*)&target, sizeof(target)) == 0)
+    {
+        struct sockaddr_in local{};
+        socklen_t len = sizeof(local);
+        if (getsockname(probeFd, (struct sockaddr*)&local, &len) == 0)
+        {
+            char buf[INET_ADDRSTRLEN] = {};
+            if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf)))
+                result = buf;
+        }
+    }
+    closesocket(probeFd);
+    return result;
+}
+
+// Escapes a string for embedding as a JSON string literal -- only ever used
+// here for game_title, which in principle could contain arbitrary bytes
+// from a malformed/homebrew ROM header, so this is defensive rather than
+// provably unnecessary (mirrors FinlinkMessages.cpp's own JsonEscape(),
+// duplicated here rather than shared since that one is file-local too).
+std::string JsonEscapeBeaconString(const std::string& in)
+{
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (char c : in)
+    {
+        switch (c)
+        {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if ((unsigned char)c < 0x20)
+            {
+                char buf[8];
+                snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+                out += buf;
+            }
+            else
+            {
+                out += c;
+            }
+        }
+    }
+    return out;
 }
 
 }
@@ -177,6 +248,7 @@ BottomScreenStream::BottomScreenStream(melonDS::NDS& nds, uint16_t port) : NDS(n
     SocketSetNonBlocking(ListenFd);
 
     AcceptThread = std::thread([this] { AcceptLoop(); });
+    BeaconThread = std::thread([this] { BeaconLoop(); });
 
     Log(LogLevel::Info, "[Stream] bottom screen stream listening on port %d\n", Port);
 }
@@ -188,6 +260,8 @@ BottomScreenStream::~BottomScreenStream()
         closesocket(ListenFd);
     if (AcceptThread.joinable())
         AcceptThread.join();
+    if (BeaconThread.joinable())
+        BeaconThread.join();
 
     std::vector<std::thread> threadsToJoin;
     {
@@ -206,12 +280,14 @@ BottomScreenStream::~BottomScreenStream()
 #endif
 }
 
-void BottomScreenStream::OnFrameEnd(const uint32_t* bottomBgra) noexcept
+void BottomScreenStream::OnFrameEnd(const uint32_t* bottomBgra, uint32_t width, uint32_t height) noexcept
 {
-    const size_t byteSize = (size_t)kStreamWidth * kStreamHeight * 4;
+    const size_t byteSize = (size_t)width * height * 4;
     std::lock_guard lock(FrameMutex);
     LatestFrameBgra.resize(byteSize);
     memcpy(LatestFrameBgra.data(), bottomBgra, byteSize);
+    LatestFrameWidth = width;
+    LatestFrameHeight = height;
     FrameId++;
 }
 
@@ -256,6 +332,72 @@ void BottomScreenStream::AcceptLoop()
     }
 }
 
+std::string BottomScreenStream::BuildBeaconMessage(const std::string& localHost) const
+{
+    std::string title = "melonDS";
+    if (const NDSCart::CartCommon* cart = NDS.GetNDSCart())
+    {
+        const char* rawTitle = cart->GetHeader().GameTitle;
+        const size_t titleLen = strnlen(rawTitle, sizeof(cart->GetHeader().GameTitle));
+        if (titleLen > 0)
+            title.assign(rawTitle, titleLen);
+    }
+
+    std::ostringstream out;
+    out << "{"
+        << "\"type\":\"finlink_beacon\","
+        << "\"protocol_version\":" << kProtocolVersion << ","
+        << "\"emulator_identifier\":\"melonDS\","
+        << "\"game_title\":\"" << JsonEscapeBeaconString(title) << "\","
+        << "\"stream_type\":\"" << kStreamType << "\","
+        << "\"host\":\"" << localHost << "\","
+        << "\"handshake_port\":" << Port
+        << "}";
+    return out.str();
+}
+
+void BottomScreenStream::BeaconLoop()
+{
+    const int beaconFd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (beaconFd < 0)
+    {
+        Log(LogLevel::Warn, "[Stream] couldn't create beacon socket, discovery disabled\n");
+        return;
+    }
+
+    int broadcastEnable = 1;
+#ifdef _WIN32
+    setsockopt(beaconFd, SOL_SOCKET, SO_BROADCAST, (const char*)&broadcastEnable, sizeof(broadcastEnable));
+#else
+    setsockopt(beaconFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
+#endif
+
+    const std::string localHost = ProbeLocalHost();
+
+    struct sockaddr_in broadcastAddr{};
+    broadcastAddr.sin_family = AF_INET;
+    broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    broadcastAddr.sin_port = htons((uint16_t)FINLINK_BEACON_PORT);
+
+    while (!Stop)
+    {
+        const std::string message = BuildBeaconMessage(localHost);
+        // Best-effort: a dropped/failed broadcast just means this tick's
+        // beacon didn't go out, no different from ordinary UDP loss -- the
+        // next tick covers for it.
+        sendto(beaconFd, message.data(), (int)message.size(), 0,
+               (const struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr));
+
+        // Polls Stop every 100ms instead of sleeping the full interval in
+        // one call, so the destructor doesn't have to wait out an
+        // in-progress interval.
+        for (int waitedMs = 0; waitedMs < 2000 && !Stop; waitedMs += 100)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    closesocket(beaconFd);
+}
+
 void BottomScreenStream::ServeConnection(int fd)
 {
     const auto request = ReadHttpRequest(fd, Stop);
@@ -269,7 +411,13 @@ void BottomScreenStream::ServeConnection(int fd)
         closesocket(fd);
         return;
     }
-    if (!SendWebSocketTextFrame(fd, BuildHelloMessage(), Stop))
+    uint32_t helloWidth, helloHeight;
+    {
+        std::lock_guard lock(FrameMutex);
+        helloWidth = LatestFrameWidth;
+        helloHeight = LatestFrameHeight;
+    }
+    if (!SendWebSocketTextFrame(fd, BuildHelloMessage(helloWidth, helloHeight), Stop))
     {
         closesocket(fd);
         return;
@@ -359,16 +507,21 @@ void BottomScreenStream::RunSession(int fd)
     while (!Stop)
     {
         std::vector<uint8_t> frameCopy;
+        uint32_t frameWidth = 0, frameHeight = 0;
         uint64_t currentId = 0;
         {
             std::lock_guard lock(FrameMutex);
             currentId = FrameId;
             if (currentId != lastSentFrameId)
+            {
                 frameCopy = LatestFrameBgra;
+                frameWidth = LatestFrameWidth;
+                frameHeight = LatestFrameHeight;
+            }
         }
         if (!frameCopy.empty())
         {
-            if (!SendVideoFrame(fd, frameCopy, Stop))
+            if (!SendVideoFrame(fd, frameCopy, frameWidth, frameHeight, Stop))
                 return;
             lastSentFrameId = currentId;
         }

@@ -921,6 +921,39 @@ bool GLRenderer::GetFramebuffers(void** top, void** bottom)
     return false;
 }
 
+bool GLRenderer::CaptureBottomScreenBGRA8(std::vector<u8>& out, u32& outWidth, u32& outHeight)
+{
+    // FPOutputFB[frontbuf] has the bottom screen bound at COLOR_ATTACHMENT1
+    // (RenderScreen()'s glFramebufferTextureLayer() call, see this file's
+    // Init()), at the current upscaled size -- read that layer back
+    // directly instead of glGetTexImage()'ing a single layer out of the
+    // array texture, which has no direct equivalent.
+    const int frontbuf = BackBuffer ^ 1;
+    outWidth = (u32)ScreenW;
+    outHeight = (u32)ScreenH;
+
+    const size_t rowBytes = (size_t)outWidth * 4;
+    out.resize(rowBytes * outHeight);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, FPOutputFB[frontbuf]);
+    glReadBuffer(GL_COLOR_ATTACHMENT1);
+    glReadPixels(0, 0, ScreenW, ScreenH, GL_BGRA, GL_UNSIGNED_BYTE, out.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+    // No flip needed, despite glReadPixels() reading window-space row 0
+    // (NDC y=-1) first: FinalPassVS.glsl maps NDC y=-1 to fTexcoord.y=0,
+    // and FinalPassFS.glsl treats fTexcoord.y=0 as DS scanline 0 (`int
+    // line = int(fTexcoord.y * 192)`) -- i.e. this renderer already
+    // deliberately draws the top of the DS screen to the bottom of
+    // window/NDC space, so glReadPixels' bottom-up read order lines up
+    // with top-down scanline order on its own. An earlier version of this
+    // function flipped anyway (reasoning from glReadPixels' convention in
+    // isolation, without checking this), which actually inverted a
+    // correct image -- verified against SoftRenderer's un-flipped
+    // GPU_Soft.h Framebuffer[][1] output for the same scene.
+    return true;
+}
+
 
 bool GLRenderer::NeedsShaderCompile()
 {

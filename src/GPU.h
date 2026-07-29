@@ -20,6 +20,7 @@
 #define GPU_H
 
 #include <memory>
+#include <vector>
 
 #include "GPU2D.h"
 #include "GPU3D.h"
@@ -861,6 +862,19 @@ public:
     // if the renderer uses RAM buffers, they should be 32-bit BGRA, 256x192 for each screen
     virtual bool GetFramebuffers(void** top, void** bottom) = 0;
     virtual void SwapBuffers() { BackBuffer ^= 1; }
+
+    // Captures the bottom screen as top-down, row-major 32-bit BGRA8 into
+    // `out` (resized as needed), reporting the actual current resolution
+    // via outWidth/outHeight -- unlike GetFramebuffers() above (RAM-backed
+    // renderers only, always native 256x192), this works for any renderer,
+    // including one that renders straight to a GPU texture and upscales
+    // (outWidth/outHeight then reflect that scale factor). Returns false
+    // if no frame is currently available to capture (same "false is a
+    // normal outcome" contract as GetFramebuffers()). Only ever called
+    // from GPU::FinishFrame(), on the emu/CPU thread -- see
+    // Streaming::BottomScreenStream::OnFrameEnd()'s own comment on why
+    // that's required for whichever renderer needs a GL context current.
+    virtual bool CaptureBottomScreenBGRA8(std::vector<u8>& out, u32& outWidth, u32& outHeight) = 0;
 
     virtual bool NeedsShaderCompile() { return false; }
     virtual void ShaderCompileStep(int& current, int& count) {}

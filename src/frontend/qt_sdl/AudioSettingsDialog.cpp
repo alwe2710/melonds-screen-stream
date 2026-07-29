@@ -117,6 +117,31 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     ui->txtMicWavPath->setEnabled(iswav);
     ui->btnMicWavBrowse->setEnabled(iswav);
 
+    // Whenever bottom-screen streaming is enabled (not just while a client
+    // happens to be connected -- GetStream() is non-null for the whole
+    // session once the feature is turned on, see NDS::SetStreamingArgs()),
+    // EmuInstance::setupMicInputData() (EmuInstanceAudio.cpp) forces
+    // micInputType to Finlink regardless of the configured mode, so gray
+    // the whole mic mode group out and reflect the forced selection rather
+    // than leave a choice on screen that silently has no effect.
+    // Snapshotted once here at dialog-construction time, same as the
+    // instance-count check just below.
+    if (emuActive && emuInstance->getNDS()->GetStream())
+    {
+        micModeForced = true;
+        grpMicMode->button(micInputType_Finlink)->setChecked(true);
+        for (QAbstractButton* btn : grpMicMode->buttons())
+            btn->setEnabled(false);
+        ui->cbMic->setEnabled(false);
+        ui->txtMicWavPath->setEnabled(false);
+        ui->btnMicWavBrowse->setEnabled(false);
+
+        const QString reason = tr("Disabled while bottom-screen streaming is enabled: the "
+                                   "microphone is forced to Finlink.");
+        for (QAbstractButton* btn : grpMicMode->buttons())
+            btn->setToolTip(reason);
+    }
+
     int inst = emuInstance->getInstanceID();
     if (inst > 0)
     {
@@ -161,7 +186,13 @@ void AudioSettingsDialog::on_AudioSettingsDialog_accepted()
 {
     auto& cfg = emuInstance->getGlobalConfig();
     cfg.SetQString("Mic.Device", ui->cbMic->currentText());
-    cfg.SetInt("Mic.InputType", grpMicMode->checkedId());
+    // Don't persist the forced Finlink selection when the group was only
+    // checked/grayed out because streaming is enabled (see constructor) --
+    // that reflects the current runtime override, not a user choice, and
+    // would otherwise silently overwrite the user's real saved preference
+    // the next time they accept this dialog for an unrelated change.
+    if (!micModeForced)
+        cfg.SetInt("Mic.InputType", grpMicMode->checkedId());
     cfg.SetQString("Mic.WavPath", ui->txtMicWavPath->text());
 
     Config::Save();

@@ -77,7 +77,14 @@ enum class HandshakeErrorCode
     MalformedRequest,
 };
 
-std::string BuildHelloMessage();
+// width/height default to kStreamWidth/kStreamHeight (the native
+// resolution) -- callers pass the actual current capture resolution when
+// known (BottomScreenStream tracks whatever CaptureBottomScreenBGRA8()
+// last reported, which is upscaled when the OpenGL renderer is active).
+// Purely informational: the client sizes its own decode buffers from each
+// FINLINK_MSG_VIDEO frame's own width/height fields instead of trusting
+// this value to stay accurate for the whole session.
+std::string BuildHelloMessage(uint32_t width = kStreamWidth, uint32_t height = kStreamHeight);
 
 // Parses a `hello_ack` text frame payload. Returns nullopt if the JSON is
 // malformed or missing required fields -- caller should treat that as

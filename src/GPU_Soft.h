@@ -50,6 +50,7 @@ public:
     void SyncVRAMCapture(u32 bank, u32 start, u32 len, bool complete) override {};
 
     bool GetFramebuffers(void** top, void** bottom) override;
+    bool CaptureBottomScreenBGRA8(std::vector<u8>& out, u32& outWidth, u32& outHeight) override;
 
 private:
     friend class SoftRenderer2D;

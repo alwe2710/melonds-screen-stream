@@ -91,7 +91,7 @@ finlink_json_span WholeObject(size_t size)
 
 }
 
-std::string BuildHelloMessage()
+std::string BuildHelloMessage(uint32_t width, uint32_t height)
 {
     std::ostringstream out;
     out.precision(10);
@@ -101,8 +101,8 @@ std::string BuildHelloMessage()
         << "\"stream_type\":\"" << kStreamType << "\","
         << "\"slots\":[{\"index\":0,\"label\":\"Bottom\",\"occupied\":false}],"
         << "\"video\":{"
-        << "\"width\":" << kStreamWidth << ","
-        << "\"height\":" << kStreamHeight << ","
+        << "\"width\":" << width << ","
+        << "\"height\":" << height << ","
         << "\"pixel_format\":\"rgb565\","
         << "\"fps\":" << kStreamFps
         << "},"
