@@ -322,6 +322,15 @@ void BottomScreenStream::ServeConnection(int fd)
     TouchPressed = false;
     Buttons = 0;
     Active = false;
+    // Drop any mic audio this client sent but nobody drained yet -- left
+    // sitting here, it would otherwise get fed to
+    // EmuInstance::micFeedFinlinkAudio() as if it were fresh once a later
+    // session (or a belated poll from this one) reads it, mislabeling
+    // stale audio as current.
+    {
+        std::lock_guard lock(MicMutex);
+        PendingMicAudio.clear();
+    }
     closesocket(fd);
 }
 
