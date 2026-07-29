@@ -72,8 +72,16 @@ public:
 
     virtual void drawScreen() {}// = 0;
 
-private slots:
+public slots:
+    // Public (not just a private slot) so MainWindow can also call this
+    // directly outside of the menu-triggered path it was originally added
+    // for -- specifically, after a core reset from EmuSettingsDialog
+    // (Stream.Enabled may have just changed there, and setupScreenLayout()'s
+    // top-screen-only override needs a fresh layout recompute to actually
+    // take effect, which nothing else re-triggers on that particular path).
     void onScreenLayoutChanged();
+
+private slots:
     void onAutoScreenSizingChanged(int sizing);
 
 protected:

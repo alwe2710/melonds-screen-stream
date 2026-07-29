@@ -1830,7 +1830,18 @@ void MainWindow::onEmuSettingsDialogFinished(int res)
     }
 
     if (EmuSettingsDialog::needsReset)
+    {
         onReset();
+        // Stream.Enabled may have just changed here (this dialog is the
+        // only place it's exposed) -- ScreenPanel::setupScreenLayout()'s
+        // top-screen-only override reads it fresh, but nothing else
+        // re-triggers a layout recompute on its own after a reset from
+        // this dialog specifically (unlike a resize or a menu-triggered
+        // layout change), so without this the panel would keep showing
+        // whatever screen layout was already on screen until some other,
+        // unrelated event happened to recompute it.
+        panel->onScreenLayoutChanged();
+    }
 
     actCurrentGBACart->setText("GBA slot: " + emuInstance->gbaCartLabel());
 
