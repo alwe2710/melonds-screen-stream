@@ -119,13 +119,13 @@ void EmuThread::run()
 
     //videoSettingsDirty = false;
 
-    // Bottom screen streaming needs a RAM-backed framebuffer to capture from
-    // (GPU::GetFramebuffers() -- see streaming/BottomScreenStream.h's own
-    // comment), which only the software renderer provides. Forced here
-    // rather than left to the user to notice and switch manually.
-    bool forceSoftwareRenderer = emuInstance->getLocalConfig().GetBool("Stream.Enabled");
-
-    if (!forceSoftwareRenderer && emuInstance->usesOpenGL())
+    // Bottom screen streaming used to need a RAM-backed framebuffer to
+    // capture from (GPU::GetFramebuffers()), which only the software
+    // renderer provided -- no longer the case now that
+    // Renderer::CaptureBottomScreenBGRA8() (GPU_OpenGL.cpp) reads the
+    // OpenGL renderer's own output directly, so the renderer the user
+    // actually selected is honored even while streaming is enabled.
+    if (emuInstance->usesOpenGL())
     {
         emuInstance->initOpenGL(0);
 
