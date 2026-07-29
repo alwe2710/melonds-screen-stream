@@ -126,6 +126,19 @@ void ScreenPanel::loadConfig()
     screenLayout = cfg.GetInt("ScreenLayout");
     screenSwap = cfg.GetBool("ScreenSwap");
     screenSizing = cfg.GetInt("ScreenSizing");
+
+    // While bottom-screen streaming is enabled, the bottom screen is
+    // already shown on the connected finlink client (and driven by ITS
+    // touch input, not the local mouse) -- showing it again here too is
+    // redundant at best and confusing at worst (a local click there does
+    // nothing, unlike every other screen region). Force top-screen-only
+    // regardless of the user's own ScreenSizing choice, the same way
+    // EmuThread.cpp already forces other settings while streaming is on;
+    // re-applied every time this reloads (menu-triggered layout changes
+    // included), so there's no way to un-force it short of disabling
+    // streaming itself.
+    if (mainWindow->getEmuInstance()->getLocalConfig().GetBool("Stream.Enabled"))
+        screenSizing = screenSizing_TopOnly;
     integerScaling = cfg.GetBool("IntegerScaling");
     screenAspectTop = cfg.GetInt("ScreenAspectTop");
     screenAspectBot = cfg.GetInt("ScreenAspectBot");
