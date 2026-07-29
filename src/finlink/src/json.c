@@ -157,28 +157,72 @@ size_t finlink_json_get_string(const char *text, finlink_json_span span, char *o
             const char e = text[pos + 1];
             if (e == 'u') {
                 unsigned int cp = 0;
-                int ok = (pos + 6 <= end);
-                if (ok) {
+                int hex_ok = (pos + 6 <= end);
+                if (hex_ok) {
                     for (int i = 0; i < 4; i++) {
                         const unsigned int digit = hex_digit(text[pos + 2 + (size_t)i]);
                         if (digit == 0xFFu) {
-                            ok = 0;
+                            hex_ok = 0;
                             break;
                         }
                         cp = (cp << 4) | digit;
                     }
                 }
-                pos = ok ? pos + 6 : end; /* malformed \u -- give up on the rest of the string */
-                if (!ok) {
-                    cp = (unsigned int)'?';
+                if (!hex_ok) {
+                    /* Malformed \u (bad hex digits, or not enough room left
+                     * in the string) -- give up on the rest of the string,
+                     * same as any other unrecoverable parse error here. */
+                    pos = end;
+                    append_byte(out_buf, out_capacity, &out_len, '?');
+                    continue;
                 }
+                pos += 6;
+
+                /* High surrogate (U+D800..U+DBFF): per RFC 8259, only valid
+                 * when immediately followed by a low surrogate
+                 * (U+DC00..U+DFFF) \u escape -- together they encode one
+                 * codepoint above the BMP (U+10000..U+10FFFF). Combine the
+                 * pair and consume both escapes. An unpaired surrogate
+                 * (either half on its own, or a high surrogate not actually
+                 * followed by a valid low one) isn't a valid Unicode scalar
+                 * value by itself -- unlike a bad hex digit, this doesn't
+                 * abandon the rest of the string, just substitutes '?' for
+                 * this one escape and keeps going. */
+                if (cp >= 0xD800u && cp <= 0xDBFFu) {
+                    unsigned int low = 0;
+                    int pair_ok = (pos + 6 <= end) && text[pos] == '\\' && text[pos + 1] == 'u';
+                    if (pair_ok) {
+                        for (int i = 0; i < 4; i++) {
+                            const unsigned int digit = hex_digit(text[pos + 2 + (size_t)i]);
+                            if (digit == 0xFFu) {
+                                pair_ok = 0;
+                                break;
+                            }
+                            low = (low << 4) | digit;
+                        }
+                    }
+                    if (pair_ok && low >= 0xDC00u && low <= 0xDFFFu) {
+                        cp = 0x10000u + ((cp - 0xD800u) << 10) + (low - 0xDC00u);
+                        pos += 6;
+                    } else {
+                        cp = (unsigned int)'?';
+                    }
+                } else if (cp >= 0xDC00u && cp <= 0xDFFFu) {
+                    cp = (unsigned int)'?'; /* unpaired low surrogate */
+                }
+
                 if (cp < 0x80u) {
                     append_byte(out_buf, out_capacity, &out_len, (char)cp);
                 } else if (cp < 0x800u) {
                     append_byte(out_buf, out_capacity, &out_len, (char)(0xC0u | (cp >> 6)));
                     append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | (cp & 0x3Fu)));
-                } else {
+                } else if (cp < 0x10000u) {
                     append_byte(out_buf, out_capacity, &out_len, (char)(0xE0u | (cp >> 12)));
+                    append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | ((cp >> 6) & 0x3Fu)));
+                    append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | (cp & 0x3Fu)));
+                } else {
+                    append_byte(out_buf, out_capacity, &out_len, (char)(0xF0u | (cp >> 18)));
+                    append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | ((cp >> 12) & 0x3Fu)));
                     append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | ((cp >> 6) & 0x3Fu)));
                     append_byte(out_buf, out_capacity, &out_len, (char)(0x80u | (cp & 0x3Fu)));
                 }
