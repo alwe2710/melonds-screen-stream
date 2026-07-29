@@ -418,6 +418,15 @@ void BottomScreenStream::RunSession(int fd)
                                                        &audio) == FINLINK_OK)
                     {
                         std::lock_guard lock(MicMutex);
+                        // PollMicAudio()/EmuInstance::micFeedFinlinkAudio()
+                        // only ever see raw sample bytes, not a rate -- they
+                        // trust the client to always send at kMicSampleRate,
+                        // the only rate ever advertised via MIC_ENABLE here.
+                        // Reject anything else rather than silently mixing
+                        // differently-rated audio into one buffer that gets
+                        // fed as if it were all kMicSampleRate.
+                        if (audio.sample_rate != kMicSampleRate)
+                            continue;
                         // ~2s cap at typical mic rates (mono) -- drop the
                         // backlog rather than let it grow unboundedly if
                         // EmuThread.cpp's per-frame drain ever falls behind
