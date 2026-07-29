@@ -192,13 +192,6 @@ private:
     std::atomic<uint16_t> TouchY{0};
     std::atomic<uint32_t> Buttons{0}; // finlink_button_bit bits, see GetInputOverride()
 
-    // GamePad-speaker-audio-forwarding equivalent for the DS: RunSession
-    // calls NDS.SPU.ReadOutput() itself (already internally mutex-guarded,
-    // see SPU.h, safe to call off the emu thread) and sends whatever it
-    // reads directly -- no separate pending-queue/mutex needed here the way
-    // WiiuGamepadStream.cpp's SubmitGamepadAudio() has one, since nothing
-    // else pushes samples into this class from another thread.
-
     // Mic input pending delivery to EmuInstance::micFeedFinlinkAudio() --
     // FIFO queue (not "latest wins"), same reasoning as the sibling
     // Cemu/Azahar implementations: dropping anything but a bounded backlog

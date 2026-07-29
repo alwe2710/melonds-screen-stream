@@ -96,6 +96,26 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
 
     setupKeypadPage();
 
+    // Whenever bottom-screen streaming is enabled (not just while a client
+    // happens to be connected -- GetStream() is non-null for the whole
+    // session once the feature is turned on, see NDS::SetStreamingArgs()),
+    // EmuThread.cpp's per-frame GetInputOverride() silently overrides
+    // whatever local DS button/D-pad mapping is configured on this tab
+    // (see that file's own comment). Gray it out rather than leave a
+    // mapping that's misleading while active, mirroring the mic gray-out
+    // already applied elsewhere (AudioSettingsDialog.cpp) under the same
+    // condition. The Addons/Hotkeys tabs are untouched -- those are host-
+    // side conveniences (fast-forward, save states, ...), not DS button
+    // state finlink ever overrides.
+    if (emuInstance->getNDS() && emuInstance->getNDS()->GetStream())
+    {
+        const int inputTabIndex = ui->tabWidget->indexOf(ui->tabInput);
+        ui->tabWidget->setTabEnabled(inputTabIndex, false);
+        ui->tabWidget->setTabToolTip(inputTabIndex,
+            "Disabled while bottom-screen streaming is enabled: DS button/D-pad "
+            "input is provided by the connected finlink client instead.");
+    }
+
     int inst = emuInstance->getInstanceID();
     if (inst > 0)
         ui->lblInstanceNum->setText(QString("Configuring mappings for instance %1").arg(inst+1));
