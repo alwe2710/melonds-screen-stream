@@ -280,7 +280,16 @@ void EmuThread::run()
             if (inputOverride)
             {
                 if (inputOverride->pressed)
-                    emuInstance->nds->TouchScreen(inputOverride->touch_x, inputOverride->touch_y);
+                {
+                    // touch_x/touch_y are wire u16 (0..65535) -- clamp to
+                    // the DS's actual 256x192 bottom screen so an
+                    // out-of-range value from the network can't report a
+                    // touch position TSC::SetTouchCoords() (SPI.cpp) would
+                    // otherwise silently wrap/misinterpret.
+                    u16 x = std::min<u32>(inputOverride->touch_x, 255);
+                    u16 y = std::min<u32>(inputOverride->touch_y, 191);
+                    emuInstance->nds->TouchScreen(x, y);
+                }
                 else
                     emuInstance->nds->ReleaseScreen();
             }
