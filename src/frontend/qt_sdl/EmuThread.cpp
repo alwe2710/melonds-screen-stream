@@ -281,13 +281,31 @@ void EmuThread::run()
             {
                 if (inputOverride->pressed)
                 {
-                    // touch_x/touch_y are wire u16 (0..65535) -- clamp to
-                    // the DS's actual 256x192 bottom screen so an
-                    // out-of-range value from the network can't report a
-                    // touch position TSC::SetTouchCoords() (SPI.cpp) would
-                    // otherwise silently wrap/misinterpret.
-                    u16 x = std::min<u32>(inputOverride->touch_x, 255);
-                    u16 y = std::min<u32>(inputOverride->touch_y, 191);
+                    // touch_x/touch_y are in the CURRENT video-stream
+                    // resolution's pixel space -- the client maps taps
+                    // through whatever frame size it's actually displaying
+                    // (finlink's TouchOverlay), same as every other stream
+                    // type/renderer combination has always assumed video
+                    // and touch resolution are identical. That stopped
+                    // being true once GLRenderer::CaptureBottomScreenBGRA8()
+                    // (GPU_OpenGL.cpp) let this stream's video resolution
+                    // scale independently of the DS's fixed 256x192
+                    // touchscreen -- without this, a touch reported in e.g.
+                    // 1024x768 (4x scale) space was only ever clamped
+                    // straight to 255x191, landing touches nowhere near
+                    // where they were actually tapped. Scale back down
+                    // proportionally using the stream's own current capture
+                    // resolution (a no-op 1:1 ratio for the software
+                    // renderer, always native already). Still clamp
+                    // afterwards -- a network-supplied touch_x/touch_y
+                    // could exceed the resolution it claims to be relative
+                    // to, and TSC::SetTouchCoords() (SPI.cpp) would
+                    // otherwise silently wrap/misinterpret an out-of-range
+                    // value.
+                    uint32_t frameWidth, frameHeight;
+                    stream->GetFrameDimensions(frameWidth, frameHeight);
+                    u16 x = std::min<u32>(inputOverride->touch_x * 256u / std::max<uint32_t>(frameWidth, 1), 255);
+                    u16 y = std::min<u32>(inputOverride->touch_y * 192u / std::max<uint32_t>(frameHeight, 1), 191);
                     emuInstance->nds->TouchScreen(x, y);
                 }
                 else

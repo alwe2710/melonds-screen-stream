@@ -127,6 +127,17 @@ public:
     // that case.
     [[nodiscard]] std::optional<finlink_touch_and_buttons> GetInputOverride() const noexcept;
 
+    // Current video-stream resolution -- whatever CaptureBottomScreenBGRA8()
+    // (GPU_OpenGL.cpp)/GetFramebuffers() (GPU_Soft.cpp) last reported via
+    // OnFrameEnd() above: native 256x192 for the software renderer, upscaled
+    // for the OpenGL one. GetInputOverride()'s touch_x/touch_y are reported
+    // by the client in THIS resolution's pixel space (it maps taps through
+    // whatever frame size it's actually displaying, same as every other
+    // stream type always has) -- callers scale back down to the DS's fixed
+    // native 256x192 touchscreen resolution using this, which only actually
+    // differs from it once the OpenGL renderer's scale factor is above 1x.
+    void GetFrameDimensions(uint32_t& width, uint32_t& height) const noexcept;
+
     // Drains and returns whatever mic audio the client has sent since the
     // last call (never blocks) -- EmuInstance::micFeedFinlinkAudio() (via
     // EmuThread.cpp's per-frame poll) drains this once per emulated frame.
@@ -169,7 +180,7 @@ private:
     // type has exactly one slot, see FinlinkMessages.cpp).
     std::atomic_bool Active{false};
 
-    std::mutex FrameMutex;
+    mutable std::mutex FrameMutex;
     std::vector<uint8_t> LatestFrameBgra; // LatestFrameWidth*LatestFrameHeight*4 bytes
     uint32_t LatestFrameWidth = kStreamWidth;
     uint32_t LatestFrameHeight = kStreamHeight;

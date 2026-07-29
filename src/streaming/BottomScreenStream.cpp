@@ -303,6 +303,13 @@ std::optional<finlink_touch_and_buttons> BottomScreenStream::GetInputOverride() 
     return result;
 }
 
+void BottomScreenStream::GetFrameDimensions(uint32_t& width, uint32_t& height) const noexcept
+{
+    std::lock_guard lock(FrameMutex);
+    width = LatestFrameWidth;
+    height = LatestFrameHeight;
+}
+
 std::vector<int16_t> BottomScreenStream::PollMicAudio()
 {
     std::lock_guard lock(MicMutex);
