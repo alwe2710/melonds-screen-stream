@@ -21,13 +21,23 @@
 
 // Server implementation for the NDS_BOTTOM_SCREEN finlink stream type: a
 // single-slot WebSocket server that streams the DS bottom screen (256x192)
-// to one remote client and accepts touch input back, per finlink's
-// docs/protocol.md. Sibling implementation to azahar's own
-// src/core/streaming/bottom_screen_stream.{h,cpp} (N3DS_BOTTOM_SCREEN) --
-// same wire protocol, same overall shape, adapted to melonDS's much simpler
-// architecture (no HLE service layer, no GPU-backend split: the software
-// renderer's bottom-screen framebuffer is a plain, persistently-allocated
-// RAM array, see GPU_Soft.h's Framebuffer[2][2]).
+// to one remote client, and accepts touch, buttons, and microphone input
+// back, per finlink's docs/protocol.md. Deliberately does NOT forward DS
+// speaker audio to the client -- only video out, mic in. Sibling
+// implementation to azahar's own src/core/streaming/bottom_screen_stream.
+// {h,cpp} (N3DS_BOTTOM_SCREEN) and Cemu's WiiuGamepadStream (WIIU_GAMEPAD)
+// -- same wire protocol, same overall shape, adapted to melonDS's much
+// simpler architecture (no HLE service layer, no GPU-backend split: the
+// software renderer's bottom-screen framebuffer is a plain, persistently-
+// allocated RAM array, see GPU_Soft.h's Framebuffer[2][2]).
+//
+// Unlike Cemu/Azahar's mic forwarding, there's no "the game currently has
+// the mic open" signal to gate FINLINK_MSG_MIC_ENABLE on here -- melonDS's
+// own Mic::FeedBuffer()/Platform::Mic_ReadInput() poll continuously
+// regardless of what the game does with the samples (no MICStatus.isOpen-
+// style state exists at this layer), matching the DS's own simpler
+// hardware. RunSession sends MIC_ENABLE(1) once, right when streaming
+// starts, and never needs to send MIC_ENABLE(0) before disconnect.
 //
 // Lifecycle: owned by NDS (see NDS::Stream / NDS::SetStreamingArgs()),
 // mirroring the ARM/GdbStub ownership pattern -- constructed/destroyed
@@ -48,16 +58,24 @@
 // capture), since melonDS's software-rendered framebuffer is already a
 // persistent RAM array rather than something requiring a GPU readback.
 //
-// Touch injection: deliberately NOT done from OnFrameEnd() or from the
-// network thread directly -- NDS::TouchScreen()/ReleaseScreen() have no
-// documented thread-safety guarantee against calls from the CPU-execution
-// thread while the CPU is running, and the network thread is not that
-// thread. Instead, GetTouchOverride() exposes the latest touch state (read
-// off lock-free atomics, written by the network thread as n3ds_touch frames
-// arrive) for the Qt frontend's own existing per-frame touch-apply site
-// (EmuThread.cpp, which *is* the CPU-execution thread) to consume instead of
-// local mouse input while a client is actively streaming -- narrow override,
+// Touch/button injection: deliberately NOT done from OnFrameEnd() or from
+// the network thread directly -- NDS::TouchScreen()/ReleaseScreen()/
+// SetKeyMask() have no documented thread-safety guarantee against calls
+// from the CPU-execution thread while the CPU is running, and the network
+// thread is not that thread. Instead, GetInputOverride() exposes the
+// latest touch+button state (read off lock-free atomics, written by the
+// network thread as n3ds_touch_and_buttons frames arrive) for the Qt
+// frontend's own existing per-frame input-apply site (EmuThread.cpp, which
+// *is* the CPU-execution thread) to consume instead of local mouse/
+// keyboard input while a client is actively streaming -- narrow override,
 // exactly mirroring azahar's own hid.cpp change for the same feature.
+//
+// Mic injection follows the same "network thread only ever writes a
+// buffer, the frontend's own per-frame site is what actually calls into
+// the emulated console" rule, for the same reason -- PollMicAudio() is
+// drained by EmuThread.cpp too, which feeds it into EmuInstance's existing
+// micResample()/micExtBuffer machinery (see EmuInstanceAudio.cpp), the
+// same one the Qt frontend's own external-mic-device capture already uses.
 
 #include <atomic>
 #include <cstdint>
@@ -66,19 +84,14 @@
 #include <thread>
 #include <vector>
 
+#include <finlink/protocol.h>
+
 namespace melonDS
 {
 class NDS;
 
 namespace Streaming
 {
-
-struct TouchOverride
-{
-    bool Pressed;
-    uint16_t X;
-    uint16_t Y;
-};
 
 class BottomScreenStream
 {
@@ -95,9 +108,22 @@ public:
     // retained past this call.
     void OnFrameEnd(const uint32_t* bottomBgra) noexcept;
 
+    // Touch + buttons, combined per finlink's "touch_and_buttons"
+    // input_encoding (finlink_touch_and_buttons, finlink/protocol.h) --
+    // a dedicated encoding with no stick fields at all, since the DS has
+    // no analog stick (see FinlinkMessages.h's own comment on why this
+    // isn't "n3ds_touch_and_buttons"/finlink_extended_input instead).
     // nullopt whenever no client is in an active (post-session_ready)
-    // session -- caller should fall back to local touch input in that case.
-    [[nodiscard]] std::optional<TouchOverride> GetTouchOverride() const noexcept;
+    // session -- caller should fall back to local touch/button input in
+    // that case.
+    [[nodiscard]] std::optional<finlink_touch_and_buttons> GetInputOverride() const noexcept;
+
+    // Drains and returns whatever mic audio the client has sent since the
+    // last call (never blocks) -- EmuInstance::micFeedFinlinkAudio() (via
+    // EmuThread.cpp's per-frame poll) drains this once per emulated frame.
+    // Empty if nothing new has arrived. Native s16 samples, mono (the DS
+    // mic, like the 3DS's, is mono-only).
+    [[nodiscard]] std::vector<int16_t> PollMicAudio();
 
 private:
     void AcceptLoop();
@@ -124,15 +150,36 @@ private:
     std::vector<uint8_t> LatestFrameBgra; // 256*192*4 bytes
     uint64_t FrameId = 0;
 
-    std::atomic_bool Streaming{false}; // session_ready sent, touch override live
+    std::atomic_bool Streaming{false}; // session_ready sent, input override live
     std::atomic_bool TouchPressed{false};
     std::atomic<uint16_t> TouchX{0};
     std::atomic<uint16_t> TouchY{0};
+    std::atomic<uint32_t> Buttons{0}; // finlink_button_bit bits, see GetInputOverride()
+
+    // GamePad-speaker-audio-forwarding equivalent for the DS: RunSession
+    // calls NDS.SPU.ReadOutput() itself (already internally mutex-guarded,
+    // see SPU.h, safe to call off the emu thread) and sends whatever it
+    // reads directly -- no separate pending-queue/mutex needed here the way
+    // WiiuGamepadStream.cpp's SubmitGamepadAudio() has one, since nothing
+    // else pushes samples into this class from another thread.
+
+    // Mic input pending delivery to EmuInstance::micFeedFinlinkAudio() --
+    // FIFO queue (not "latest wins"), same reasoning as the sibling
+    // Cemu/Azahar implementations: dropping anything but a bounded backlog
+    // would produce audible gaps.
+    std::mutex MicMutex;
+    std::vector<int16_t> PendingMicAudio;
 
 #ifdef _WIN32
     bool WsaInitialized = false;
 #endif
 };
+
+// Translates a finlink_button_bit bitmask (protocol.h, active-high) into
+// NDS::SetKeyMask()'s own bit layout (NDS.cpp: bits 0-9 = A,B,Select,Start,
+// Right,Left,Up,Down,R,L; bits 10-11 = X,Y; active-LOW, 1 = released).
+// ZL/ZR/HOME have no DS equivalent and are ignored.
+uint32_t FinlinkButtonsToNdsKeyMask(uint32_t finlinkButtons) noexcept;
 
 }
 }

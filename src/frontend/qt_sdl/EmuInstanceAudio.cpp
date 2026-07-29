@@ -210,6 +210,19 @@ void EmuInstance::micOpen()
 
     if (micDevice) return;
 
+    if (micInputType == micInputType_Finlink)
+    {
+        // No SDL capture device to open -- samples arrive via
+        // micFeedFinlinkAudio() instead (EmuThread.cpp's per-frame poll of
+        // BottomScreenStream::PollMicAudio()). Still need micFreq set,
+        // since micGetNumSamplesIn()'s resampling ratio depends on it --
+        // matches the rate finlink's MIC_ENABLE tells the client to
+        // capture at (BottomScreenStream.cpp's kStreamAudioSampleRate).
+        micFreq = 48000;
+        micDevice = 0;
+        return;
+    }
+
     if (micInputType != micInputType_External)
     {
         micDevice = 0;
@@ -354,6 +367,7 @@ void EmuInstance::setupMicInputData()
             micBufferLength = 0;
             break;
         case micInputType_External:
+        case micInputType_Finlink:
             micBuffer = micExtBuffer;
             micBufferLength = sizeof(micExtBuffer) / sizeof(s16);
             break;
@@ -374,13 +388,17 @@ void EmuInstance::setupMicInputData()
 int EmuInstance::micReadInput(s16* data, int maxlength)
 {
     int type = micInputType;
-    if ((type == micInputType_External) && (micExtBufferCount == 0))
+    // Finlink-fed mic input shares micExtBuffer/micExtBufferCount with
+    // External (SDL capture device) below -- same buffer/locking, just a
+    // different producer (micFeedFinlinkAudio() instead of micCallback()).
+    bool isExternalLike = (type == micInputType_External) || (type == micInputType_Finlink);
+    if (isExternalLike && (micExtBufferCount == 0))
         return 0;
 
     bool cmd = hotkeyDown(HK_Mic);
 
     if ((!micBuffer) ||
-        ((type != micInputType_External) && (!cmd)))
+        (!isExternalLike && (!cmd)))
     {
         type = micInputType_Silence;
     }
@@ -392,7 +410,7 @@ int EmuInstance::micReadInput(s16* data, int maxlength)
         return maxlength;
     }
 
-    if (type == micInputType_External)
+    if (isExternalLike)
         SDL_LockMutex(micLock);
 
     int readlength = 0;
@@ -402,7 +420,7 @@ int EmuInstance::micReadInput(s16* data, int maxlength)
         if ((micBufferReadPos + thislen) > micBufferLength)
             thislen = micBufferLength - micBufferReadPos;
 
-        if (type == micInputType_External)
+        if (isExternalLike)
         {
             if (thislen > micExtBufferCount)
                 thislen = micExtBufferCount;
@@ -422,7 +440,7 @@ int EmuInstance::micReadInput(s16* data, int maxlength)
         readlength += thislen;
     }
 
-    if (type == micInputType_External)
+    if (isExternalLike)
         SDL_UnlockMutex(micLock);
 
     return readlength;
@@ -488,6 +506,16 @@ void EmuInstance::micCallback(void* data, Uint8* stream, int len)
     SDL_LockMutex(inst->micLock);
     inst->micResample(input, len);
     SDL_UnlockMutex(inst->micLock);
+}
+
+void EmuInstance::micFeedFinlinkAudio(const s16* samples, int len)
+{
+    if (micInputType != micInputType_Finlink)
+        return;
+
+    SDL_LockMutex(micLock);
+    micResample(const_cast<s16*>(samples), len);
+    SDL_UnlockMutex(micLock);
 }
 
 

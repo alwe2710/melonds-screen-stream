@@ -44,14 +44,21 @@ namespace melonDS::Streaming
 
 constexpr int kProtocolVersion = 2;
 constexpr char kStreamType[] = "NDS_BOTTOM_SCREEN";
-// Reusing "n3ds_touch" rather than a new "nds_touch" name: the wire format
-// (u8 pressed + u16le x + u16le y) is identical, and the coordinate space is
-// already documented as "whatever hello.video declares", not hardcoded to
-// the 3DS's 320x240 -- see docs/protocol.md's WebSocket-binäre-Frames
-// section.
-constexpr char kInputEncoding[] = "n3ds_touch";
+// Dedicated encoding, not "n3ds_touch_and_buttons" -- the DS has no analog
+// stick at all, so reusing finlink_extended_input would mean always
+// sending 8 bytes of stick fields that could only ever be zero. This is
+// finlink_touch_and_buttons (protocol.h) instead: touch + buttons only,
+// no stick fields in the wire format at all. See docs/protocol.md's
+// WebSocket-binäre-Frames section.
+constexpr char kInputEncoding[] = "touch_and_buttons";
 constexpr uint32_t kStreamWidth = 256;
 constexpr uint32_t kStreamHeight = 192;
+// Sample rate FINLINK_MSG_MIC_ENABLE tells the client to capture its own
+// microphone at (BottomScreenStream.cpp) -- matches the rate
+// EmuInstanceAudio.cpp's micOpen() sets for the Finlink mic input type, so
+// no extra resampling is needed beyond micResample()'s existing internal
+// conversion to the DS's native ~47743Hz mic rate.
+constexpr uint32_t kMicSampleRate = 48000;
 // 33513982 Hz is the DS's system clock (see RTC.cpp/Wifi.cpp for the same
 // constant); GPU.cpp's FRAME_CYCLES is 355*6*263 cycles/frame, so
 // 33513982 / (355*6*263) is the exact native refresh rate.

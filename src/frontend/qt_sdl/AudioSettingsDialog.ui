@@ -173,6 +173,16 @@
         </property>
        </widget>
       </item>
+      <item row="4" column="0" colspan="3">
+       <widget class="QRadioButton" name="rbMicFinlink">
+        <property name="whatsThis">
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Input from a connected finlink client's own microphone will be forwarded to the emulated microphone.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        </property>
+        <property name="text">
+         <string>Finlink remote microphone</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -204,6 +214,7 @@
   <tabstop>rbMicExternal</tabstop>
   <tabstop>rbMicNoise</tabstop>
   <tabstop>rbMicWav</tabstop>
+  <tabstop>rbMicFinlink</tabstop>
   <tabstop>txtMicWavPath</tabstop>
   <tabstop>btnMicWavBrowse</tabstop>
  </tabstops>

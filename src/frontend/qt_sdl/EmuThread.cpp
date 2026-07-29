@@ -259,20 +259,28 @@ void EmuThread::run()
             }
 
             // process input and hotkeys
-            emuInstance->nds->SetKeyMask(emuInstance->inputMask);
-
+            //
             // A remote finlink client streaming the bottom screen (see
-            // streaming/BottomScreenStream.h) wholesale overrides touch
-            // only -- buttons (SetKeyMask above) always stay local. nullopt
+            // streaming/BottomScreenStream.h) wholesale overrides both
+            // touch and buttons together (finlink's "touch_and_buttons"
+            // input_encoding, one combined frame -- no analog stick field
+            // at all, unlike N3DS_BOTTOM_SCREEN/WIIU_GAMEPAD's
+            // "n3ds_touch_and_buttons", since the DS has none) -- nullopt
             // whenever no client is in an active session, in which case
-            // local mouse/touch input is used exactly as before.
+            // local mouse/keyboard/joystick input is used exactly as
+            // before for both.
             melonDS::Streaming::BottomScreenStream* stream = emuInstance->nds->GetStream();
-            std::optional<melonDS::Streaming::TouchOverride> touchOverride =
-                stream ? stream->GetTouchOverride() : std::nullopt;
-            if (touchOverride)
+            std::optional<finlink_touch_and_buttons> inputOverride =
+                stream ? stream->GetInputOverride() : std::nullopt;
+
+            emuInstance->nds->SetKeyMask(inputOverride
+                ? melonDS::Streaming::FinlinkButtonsToNdsKeyMask(inputOverride->buttons)
+                : emuInstance->inputMask);
+
+            if (inputOverride)
             {
-                if (touchOverride->Pressed)
-                    emuInstance->nds->TouchScreen(touchOverride->X, touchOverride->Y);
+                if (inputOverride->pressed)
+                    emuInstance->nds->TouchScreen(inputOverride->touch_x, inputOverride->touch_y);
                 else
                     emuInstance->nds->ReleaseScreen();
             }
@@ -280,6 +288,20 @@ void EmuThread::run()
                 emuInstance->nds->TouchScreen(emuInstance->touchX, emuInstance->touchY);
             else
                 emuInstance->nds->ReleaseScreen();
+
+            // Mic input follows the same "network thread only ever writes
+            // a buffer, this per-frame site is what actually feeds it into
+            // the emulated console" rule -- see BottomScreenStream.h's own
+            // header comment. Harmless no-op call whenever no client is
+            // connected (PollMicAudio() returns empty) or the user hasn't
+            // selected "Finlink Remote Microphone" as their mic input
+            // (micFeedFinlinkAudio() itself checks that).
+            if (stream)
+            {
+                std::vector<melonDS::s16> micSamples = stream->PollMicAudio();
+                if (!micSamples.empty())
+                    emuInstance->micFeedFinlinkAudio(micSamples.data(), (int)micSamples.size());
+            }
 
             if (emuInstance->hotkeyPressed(HK_Lid))
             {

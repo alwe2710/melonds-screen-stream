@@ -35,6 +35,7 @@
 #include <cstring>
 
 #include "finlink/deflate.h"
+#include "finlink/endian.h"
 #include "finlink/protocol.h"
 #include "FinlinkMessages.h"
 #include "FinlinkWebSocket.h"
@@ -104,6 +105,28 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, const std::atomic
     return SendWebSocketBinaryFrame(fd, message, stop);
 }
 
+}
+
+uint32_t FinlinkButtonsToNdsKeyMask(uint32_t finlinkButtons) noexcept
+{
+    uint32_t mask = 0xFFF; // start with everything released (active-low)
+    auto apply = [&](bool pressed, int ndsBit) {
+        if (pressed)
+            mask &= ~(1u << ndsBit);
+    };
+    apply(finlinkButtons & FINLINK_BUTTON_A, 0);
+    apply(finlinkButtons & FINLINK_BUTTON_B, 1);
+    apply(finlinkButtons & FINLINK_BUTTON_SELECT, 2);
+    apply(finlinkButtons & FINLINK_BUTTON_START, 3);
+    apply(finlinkButtons & FINLINK_BUTTON_RIGHT, 4);
+    apply(finlinkButtons & FINLINK_BUTTON_LEFT, 5);
+    apply(finlinkButtons & FINLINK_BUTTON_UP, 6);
+    apply(finlinkButtons & FINLINK_BUTTON_DOWN, 7);
+    apply(finlinkButtons & FINLINK_BUTTON_R, 8);
+    apply(finlinkButtons & FINLINK_BUTTON_L, 9);
+    apply(finlinkButtons & FINLINK_BUTTON_X, 10);
+    apply(finlinkButtons & FINLINK_BUTTON_Y, 11);
+    return mask;
 }
 
 BottomScreenStream::BottomScreenStream(melonDS::NDS& nds, uint16_t port) : NDS(nds), Port(port)
@@ -192,14 +215,23 @@ void BottomScreenStream::OnFrameEnd(const uint32_t* bottomBgra) noexcept
     FrameId++;
 }
 
-std::optional<TouchOverride> BottomScreenStream::GetTouchOverride() const noexcept
+std::optional<finlink_touch_and_buttons> BottomScreenStream::GetInputOverride() const noexcept
 {
     if (!Streaming.load(std::memory_order_relaxed))
         return std::nullopt;
-    TouchOverride result;
-    result.Pressed = TouchPressed.load(std::memory_order_relaxed);
-    result.X = TouchX.load(std::memory_order_relaxed);
-    result.Y = TouchY.load(std::memory_order_relaxed);
+    finlink_touch_and_buttons result{};
+    result.pressed = TouchPressed.load(std::memory_order_relaxed) ? 1 : 0;
+    result.touch_x = TouchX.load(std::memory_order_relaxed);
+    result.touch_y = TouchY.load(std::memory_order_relaxed);
+    result.buttons = Buttons.load(std::memory_order_relaxed);
+    return result;
+}
+
+std::vector<int16_t> BottomScreenStream::PollMicAudio()
+{
+    std::lock_guard lock(MicMutex);
+    std::vector<int16_t> result = std::move(PendingMicAudio);
+    PendingMicAudio.clear();
     return result;
 }
 
@@ -288,6 +320,7 @@ void BottomScreenStream::ServeConnection(int fd)
 
     Streaming = false;
     TouchPressed = false;
+    Buttons = 0;
     Active = false;
     closesocket(fd);
 }
@@ -298,6 +331,21 @@ void BottomScreenStream::RunSession(int fd)
     uint64_t lastSentFrameId = 0;
     std::vector<uint8_t> recvBuffer;
     std::array<uint8_t, 4096> readBuf{};
+
+    // Mic input has no "the game currently wants it" signal to gate on
+    // here (see this file's header comment) -- send the enable signal once
+    // up front rather than tracking an edge-detected want-state like
+    // Cemu/Azahar do for their own mic forwarding.
+    {
+        finlink_mic_enable enable;
+        enable.enabled = 1;
+        enable.sample_rate = kMicSampleRate;
+        uint8_t payload[FINLINK_MIC_ENABLE_FRAME_SIZE];
+        finlink_build_mic_enable_frame(&enable, payload);
+        std::vector<uint8_t> message(payload, payload + FINLINK_MIC_ENABLE_FRAME_SIZE);
+        if (!SendWebSocketBinaryFrame(fd, message, Stop))
+            return;
+    }
 
     while (!Stop)
     {
@@ -338,12 +386,40 @@ void BottomScreenStream::RunSession(int fd)
                     return;
                 if (parsed->Opcode != FINLINK_WS_OPCODE_BINARY)
                     continue;
-                finlink_touch_state touch{};
-                if (finlink_parse_touch_frame(parsed->Payload.data(), parsed->Payload.size(), &touch) == FINLINK_OK)
+
+                finlink_msg_type type;
+                if (finlink_peek_type(parsed->Payload.data(), parsed->Payload.size(), &type) != FINLINK_OK)
+                    continue;
+                if (type == FINLINK_MSG_INPUT)
                 {
-                    TouchPressed = touch.pressed != 0;
-                    TouchX = touch.x;
-                    TouchY = touch.y;
+                    finlink_touch_and_buttons input{};
+                    if (finlink_parse_touch_and_buttons_frame(parsed->Payload.data(), parsed->Payload.size(),
+                                                               &input) == FINLINK_OK)
+                    {
+                        TouchPressed = input.pressed != 0;
+                        TouchX = input.touch_x;
+                        TouchY = input.touch_y;
+                        Buttons = input.buttons;
+                    }
+                }
+                else if (type == FINLINK_MSG_MIC_AUDIO)
+                {
+                    finlink_audio_frame audio{};
+                    if (finlink_parse_mic_audio_frame(parsed->Payload.data(), parsed->Payload.size(),
+                                                       &audio) == FINLINK_OK)
+                    {
+                        std::lock_guard lock(MicMutex);
+                        // ~2s cap at typical mic rates (mono) -- drop the
+                        // backlog rather than let it grow unboundedly if
+                        // EmuThread.cpp's per-frame drain ever falls behind
+                        // this far (same tradeoff WiiuGamepadStream::
+                        // SubmitGamepadAudio() makes in Cemu).
+                        constexpr size_t kMaxPendingSamples = 48000 * 2;
+                        if (PendingMicAudio.size() + audio.sample_count > kMaxPendingSamples)
+                            PendingMicAudio.clear();
+                        for (size_t i = 0; i < audio.sample_count; i++)
+                            PendingMicAudio.push_back(finlink_read_s16le(audio.samples + i * 2));
+                    }
                 }
             }
         }

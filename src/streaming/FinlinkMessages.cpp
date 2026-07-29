@@ -141,8 +141,10 @@ std::string BuildSessionReadyMessage()
 {
     // Like azahar's equivalent: no real video negotiation for this stream
     // type (fixed 256x192, small enough that no realistic client's
-    // video_limits would ever need to shrink it), no audio, no redirect
-    // (single slot).
+    // video_limits would ever need to shrink it), no audio (this stream
+    // type never sends console/speaker audio -- only mic input, which
+    // isn't part of this negotiation, see FINLINK_MSG_MIC_ENABLE), no
+    // redirect (single slot).
     std::ostringstream out;
     out.precision(10);
     out << "{"

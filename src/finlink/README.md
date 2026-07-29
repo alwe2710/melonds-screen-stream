@@ -1,5 +1,5 @@
 Vendored copy of `core/` from https://github.com/alwe2710/finlink (branch
-`feature/protocol-v2`, commit `21c39a1`) -- the portable C99 library behind
+`main`, commit `ffc392f`) -- the portable C99 library behind
 the finlink WebSocket streaming protocol also used by the sibling
 dolphin-gba-stream and azahar forks, and by melonDS's own bottom-screen
 streaming server (`src/streaming/`).

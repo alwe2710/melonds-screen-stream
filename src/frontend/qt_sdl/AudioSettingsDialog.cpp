@@ -103,6 +103,7 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     grpMicMode->addButton(ui->rbMicExternal, micInputType_External);
     grpMicMode->addButton(ui->rbMicNoise,    micInputType_Noise);
     grpMicMode->addButton(ui->rbMicWav,      micInputType_Wav);
+    grpMicMode->addButton(ui->rbMicFinlink,  micInputType_Finlink);
 #if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
     connect(grpMicMode, SIGNAL(buttonClicked(int)), this, SLOT(onChangeMicMode(int)));
 #else
