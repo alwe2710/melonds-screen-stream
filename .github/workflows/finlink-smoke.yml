@@ -68,3 +68,31 @@ jobs:
           done < <(find src/finlink -type f -print0)
 
           exit $status
+
+  finlink-messages-test:
+    # Deliberately separate from finlink-freshness above and doesn't need
+    # any of melonDS's own build dependencies (Qt/SDL/etc.) -- see
+    # tests/CMakeLists.txt's own comment for why this points at a fresh
+    # canonical finlink/core checkout rather than src/finlink/'s stale
+    # vendored copy (which doesn't even declare session_ready.video_mode
+    # yet, see finlink-freshness above), and note the branch here is
+    # `transcoding`, not `main` like finlink-freshness's own comparison
+    # target -- video_mode itself only exists on transcoding, still
+    # unmerged as of this workflow being written.
+    name: FinlinkMessages.cpp unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fetch canonical finlink core (for the round-trip assertions, not src/finlink/'s stale copy)
+        run: git clone --depth 1 --branch transcoding https://github.com/alwe2710/finlink.git /tmp/finlink-canonical
+
+      - name: Configure
+        run: |
+          cmake -S src/streaming/tests -B build/finlink_messages_test \
+            -DFINLINK_CORE_DIR=/tmp/finlink-canonical/core
+      - name: Build
+        run: cmake --build build/finlink_messages_test -j"$(nproc)"
+      - name: Test
+        working-directory: build/finlink_messages_test
+        run: ctest --output-on-failure
