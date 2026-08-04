@@ -1,0 +1,70 @@
+name: finlink smoke
+
+# Fork-owned workflow, deliberately separate from the upstream-inherited
+# build-*.yml files so future syncs from melonDS-emu/melonDS don't collide
+# with anything finlink-specific. Part of the finlink CI pipeline's
+# build-smoke stage; see finlink/docs/capabilities.md and the 5-repo drift
+# snapshot in the plan this came from.
+#
+# Unlike the other three hosts, src/finlink/ here isn't a git submodule at
+# all -- it's a committed, hand-synced copy of finlink/core/ (see
+# src/finlink/README.md's own "re-sync" instructions, and the CMakeLists.txt
+# comment at its include site), so there's no submodule pin to read. This
+# job instead diffs the vendored files directly against a fresh checkout of
+# finlink's main branch (the branch src/finlink/README.md itself says it
+# was last synced from).
+
+on:
+  push:
+    branches: [master, ci/*]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  finlink-freshness:
+    name: src/finlink freshness (vendored copy, no submodule)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Clone canonical finlink for comparison
+        run: git clone --depth 1 --branch main https://github.com/alwe2710/finlink.git /tmp/finlink-canonical
+
+      - name: Compare vendored src/finlink/ against finlink/core on main
+        run: |
+          set -euo pipefail
+          status=0
+
+          # README.md is expected to differ -- it's src/finlink's own
+          # hand-written sync note (see this workflow's own comment), not a
+          # copy of core/README.md. Its self-declared "commit `<sha>`" is
+          # the actual freshness signal, compared against main's real tip.
+          declared_sha="$(sed -nE 's/.*commit `([0-9a-f]+)`.*/\1/p' src/finlink/README.md | head -1)"
+          latest_sha="$(git -C /tmp/finlink-canonical rev-parse main)"
+          if [ -z "$declared_sha" ]; then
+            echo "::warning::src/finlink/README.md doesn't state a synced-from commit hash (expected a 'commit \`<sha>\`' line) -- can't verify freshness from it."
+            status=1
+          elif [ "${latest_sha#"$declared_sha"}" = "$latest_sha" ]; then
+            # declared_sha isn't a prefix of latest_sha -- i.e. not the same commit.
+            echo "::warning::src/finlink/README.md declares it was synced from commit $declared_sha, but finlink's main tip is now $latest_sha. Re-sync per the README's own instructions."
+            status=1
+          fi
+
+          # Every actual source file, independent of the declared commit
+          # above (catches a stale/wrong hash claim, or a partial re-sync).
+          while IFS= read -r -d '' f; do
+            rel="${f#src/finlink/}"
+            [ "$rel" = "README.md" ] && continue
+            canonical="/tmp/finlink-canonical/core/$rel"
+            if [ ! -f "$canonical" ]; then
+              echo "::warning::src/finlink/$rel has no counterpart in finlink/core on main (renamed/removed upstream, or deliberately not meant to be vendored here?)"
+              status=1
+              continue
+            fi
+            if ! cmp -s "$f" "$canonical"; then
+              echo "::warning::src/finlink/$rel differs from finlink/core/$rel on main -- vendored copy is stale."
+              status=1
+            fi
+          done < <(find src/finlink -type f -print0)
+
+          exit $status
