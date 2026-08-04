@@ -134,6 +134,17 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
     HandshakeAck ack;
     ack.ProtocolVersion = (int)finlink_json_get_number(text, versionSpan);
     ack.RequestedSlot = (int)finlink_json_get_number(text, slotSpan);
+    // 16, not FINLINK_VIDEO_MODE_LEN: src/finlink/'s vendored finlink_core
+    // predates hello_ack.video_mode/FINLINK_VIDEO_MODE_LEN existing at all
+    // (it was last hand-synced from finlink's main branch, see
+    // src/finlink/README.md -- video_mode itself only exists on finlink's
+    // still-unmerged transcoding branch). Matches the value
+    // FINLINK_VIDEO_MODE_LEN has on transcoding today; switch this to the
+    // real constant once src/finlink/ is re-synced past that point (same
+    // situation as FinlinkWebSocket.h's FINLINK_WS_SEND_TIMEOUT_MS comment).
+    char videoMode[16];
+    if (finlink_json_get_string(text, finlink_json_find_member(text, obj.start, obj.end, "video_mode"), videoMode, sizeof(videoMode)) != (size_t)-1)
+        ack.VideoMode = videoMode;
     return ack;
 }
 
@@ -145,6 +156,15 @@ std::string BuildSessionReadyMessage()
     // type never sends console/speaker audio -- only mic input, which
     // isn't part of this negotiation, see FINLINK_MSG_MIC_ENABLE), no
     // redirect (single slot).
+    //
+    // video_mode is always "legacy" regardless of what was requested in
+    // hello_ack (see HandshakeAck::VideoMode's own comment) -- this stream
+    // type has no TILES/H264/H265 encoder, only ever sends a full raw frame
+    // (SendVideoFrame's hardcoded format=0, see BottomScreenStream.cpp).
+    // Reporting the honest fallback here, per finlink's docs/protocol.md
+    // "Video-mode fallback", is what lets a client that requested something
+    // else show a fallback prompt instead of silently getting legacy video
+    // with no explanation.
     std::ostringstream out;
     out.precision(10);
     out << "{"
@@ -154,7 +174,8 @@ std::string BuildSessionReadyMessage()
         << "\"width\":" << kStreamWidth << ","
         << "\"height\":" << kStreamHeight << ","
         << "\"fps\":" << kStreamFps
-        << "}"
+        << "},"
+        << "\"video_mode\":\"legacy\""
         << "}";
     return out.str();
 }

@@ -64,10 +64,17 @@ constexpr uint32_t kMicSampleRate = 48000;
 // 33513982 / (355*6*263) is the exact native refresh rate.
 constexpr double kStreamFps = 33513982.0 / (355.0 * 6.0 * 263.0);
 
+// video_mode: what the client requested (finlink's protocol.md "tiles"/
+// "legacy"/"h264"/"h265", empty if unset/unrecognized) -- this stream type
+// has no TILES/H264/H265 encoder, only ever sends a full raw frame (see
+// BuildSessionReadyMessage()), so this is parsed only so the server can
+// honestly report the fallback in session_ready.video_mode instead of
+// silently ignoring the request. Never actually changes server behavior.
 struct HandshakeAck
 {
     int ProtocolVersion;
     int RequestedSlot;
+    std::string VideoMode;
 };
 
 enum class HandshakeErrorCode
