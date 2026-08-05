@@ -16,23 +16,23 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef MELONDS_STREAMING_FINLINKMESSAGES_H
-#define MELONDS_STREAMING_FINLINKMESSAGES_H
+#ifndef MELONDS_STREAMING_UNISONMESSAGES_H
+#define MELONDS_STREAMING_UNISONMESSAGES_H
 
 // App-level handshake (hello / hello_ack / session_ready / handshake_error)
 // for the NDS_BOTTOM_SCREEN stream type, exchanged as WebSocket text frames
-// before any Video/Input binary frame, per finlink's docs/protocol.md.
+// before any Video/Input binary frame, per Unison's docs/protocol.md.
 // Mirrors azahar's src/core/streaming/handshake_messages.h/.cpp (same wire
 // shapes, same simplification for a fixed single-slot, audio-less stream
 // type -- no redirect step, no audio negotiation) -- hand-written JSON
 // instead of nlohmann::json (not available here) for building, and
-// finlink/json.h's span-based reader (vendored at src/finlink/, see its own
+// unison/json.h's span-based reader (vendored at src/unison/, see its own
 // header comment: "building the one JSON shape this client ever sends...
 // done directly with snprintf-style formatting instead", the same idea
 // applied here to the server's outgoing messages) for parsing hello_ack.
 //
 // Pure message (de)serialization -- no socket I/O, mirroring
-// FinlinkWebSocket.h's own separation of transport from message content.
+// UnisonWebSocket.h's own separation of transport from message content.
 
 #include <cstdint>
 #include <optional>
@@ -45,17 +45,17 @@ namespace melonDS::Streaming
 constexpr int kProtocolVersion = 2;
 constexpr char kStreamType[] = "NDS_BOTTOM_SCREEN";
 // Dedicated encoding, not "n3ds_touch_and_buttons" -- the DS has no analog
-// stick at all, so reusing finlink_extended_input would mean always
+// stick at all, so reusing unison_extended_input would mean always
 // sending 8 bytes of stick fields that could only ever be zero. This is
-// finlink_touch_and_buttons (protocol.h) instead: touch + buttons only,
+// unison_touch_and_buttons (protocol.h) instead: touch + buttons only,
 // no stick fields in the wire format at all. See docs/protocol.md's
 // WebSocket-binäre-Frames section.
 constexpr char kInputEncoding[] = "touch_and_buttons";
 constexpr uint32_t kStreamWidth = 256;
 constexpr uint32_t kStreamHeight = 192;
-// Sample rate FINLINK_MSG_MIC_ENABLE tells the client to capture its own
+// Sample rate UNISON_MSG_MIC_ENABLE tells the client to capture its own
 // microphone at (BottomScreenStream.cpp) -- matches the rate
-// EmuInstanceAudio.cpp's micOpen() sets for the Finlink mic input type, so
+// EmuInstanceAudio.cpp's micOpen() sets for the Unison mic input type, so
 // no extra resampling is needed beyond micResample()'s existing internal
 // conversion to the DS's native ~47743Hz mic rate.
 constexpr uint32_t kMicSampleRate = 48000;
@@ -64,7 +64,7 @@ constexpr uint32_t kMicSampleRate = 48000;
 // 33513982 / (355*6*263) is the exact native refresh rate.
 constexpr double kStreamFps = 33513982.0 / (355.0 * 6.0 * 263.0);
 
-// video_mode: what the client requested (finlink's protocol.md "tiles"/
+// video_mode: what the client requested (Unison's protocol.md "tiles"/
 // "legacy"/"h264"/"h265", empty if unset/unrecognized) -- this stream type
 // has no TILES/H264/H265 encoder, only ever sends a full raw frame (see
 // BuildSessionReadyMessage()), so this is parsed only so the server can
@@ -89,7 +89,7 @@ enum class HandshakeErrorCode
 // known (BottomScreenStream tracks whatever CaptureBottomScreenBGRA8()
 // last reported, which is upscaled when the OpenGL renderer is active).
 // Purely informational: the client sizes its own decode buffers from each
-// FINLINK_MSG_VIDEO frame's own width/height fields instead of trusting
+// UNISON_MSG_VIDEO frame's own width/height fields instead of trusting
 // this value to stay accurate for the whole session.
 std::string BuildHelloMessage(uint32_t width = kStreamWidth, uint32_t height = kStreamHeight);
 
@@ -104,4 +104,4 @@ std::string BuildHandshakeErrorMessage(HandshakeErrorCode code, const std::strin
 
 }
 
-#endif // MELONDS_STREAMING_FINLINKMESSAGES_H
+#endif // MELONDS_STREAMING_UNISONMESSAGES_H

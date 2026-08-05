@@ -16,17 +16,17 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef MELONDS_STREAMING_FINLINKWEBSOCKET_H
-#define MELONDS_STREAMING_FINLINKWEBSOCKET_H
+#ifndef MELONDS_STREAMING_UNISONWEBSOCKET_H
+#define MELONDS_STREAMING_UNISONWEBSOCKET_H
 
 // RFC6455 WebSocket transport for BottomScreenStream.cpp: reading/parsing
 // the plain-HTTP upgrade request, computing Sec-WebSocket-Accept, sending
 // unmasked server->client frames, and receiving masked client->server
 // frames. Deliberately only the transport -- neither the app-level handshake
-// (FinlinkMessages.h) nor the Video/Input binary message formats
+// (UnisonMessages.h) nor the Video/Input binary message formats
 // (BottomScreenStream.cpp) live here.
 //
-// Same wire format as the finlink WebSocket transport already implemented
+// Same wire format as the Unison WebSocket transport already implemented
 // twice elsewhere (dolphin-gba-stream's GBAStreamWebSocket.h against SFML,
 // azahar's websocket_transport.h against boost::asio) -- this is the third,
 // against raw BSD/Winsock sockets, matching how src/debug/GdbStub.cpp (the
@@ -61,7 +61,7 @@
 #include <thread>
 #include <vector>
 
-#include "finlink/websocket.h"
+#include "unison/websocket.h"
 #include "sha1/sha1.hpp"
 #include "Base64.h"
 
@@ -182,11 +182,11 @@ inline bool IsWebSocketUpgradeRequest(const HttpRequest& request)
 // has to fully reconnect) rather than just this one frame arriving late --
 // 10 seconds absorbs that without meaningfully changing behavior for an
 // actually-dead peer, which was never going to un-stall in the next 7
-// seconds either. finlink_core now has this as a named constant,
-// FINLINK_WS_SEND_TIMEOUT_MS (core/include/finlink/websocket.h) -- not
-// referenced directly here yet because src/finlink/ was last hand-synced
-// from finlink's main branch (see src/finlink/README.md), which doesn't
-// have that commit yet (it landed on finlink's transcoding branch, still
+// seconds either. unison_core now has this as a named constant,
+// UNISON_WS_SEND_TIMEOUT_MS (core/include/unison/websocket.h) -- not
+// referenced directly here yet because src/unison/ was last hand-synced
+// from Unison's main branch (see src/unison/README.md), which doesn't
+// have that commit yet (it landed on Unison's transcoding branch, still
 // unmerged as of this fix). Switch this literal to the constant on the
 // next re-sync past that point.
 inline bool SendAllBytes(int fd, const void* data, size_t size, const std::atomic_bool& stop)
@@ -282,13 +282,13 @@ inline bool SendWebSocketTextFrame(int fd, const std::string& payload, const std
 
 struct ReceivedFrame
 {
-    finlink_ws_opcode Opcode;
+    unison_ws_opcode Opcode;
     std::vector<uint8_t> Payload;
 };
 
 // Tries to parse one client->server (masked) frame from the front of `buf`
-// via finlink_ws_parse_frame() (core/include/finlink/websocket.h, vendored
-// at src/finlink/ -- its unmasking logic is generic despite being documented
+// via unison_ws_parse_frame() (core/include/unison/websocket.h, vendored
+// at src/unison/ -- its unmasking logic is generic despite being documented
 // from a client's perspective, see that header's own comment), consuming
 // those bytes from `buf` on success. Returns nullopt (leaving `buf`
 // untouched) if there isn't a full frame yet; sets `*protocolError` if the
@@ -299,11 +299,11 @@ inline std::optional<ReceivedFrame> TryParseOneFrame(std::vector<uint8_t>& buf, 
     *protocolError = false;
     if (buf.empty())
         return std::nullopt;
-    finlink_ws_frame frame{};
-    auto status = finlink_ws_parse_frame(buf.data(), buf.size(), &frame);
-    if (status == FINLINK_WS_FRAME_INCOMPLETE)
+    unison_ws_frame frame{};
+    auto status = unison_ws_parse_frame(buf.data(), buf.size(), &frame);
+    if (status == UNISON_WS_FRAME_INCOMPLETE)
         return std::nullopt;
-    if (status == FINLINK_WS_FRAME_ERR)
+    if (status == UNISON_WS_FRAME_ERR)
     {
         *protocolError = true;
         buf.clear();
@@ -318,7 +318,7 @@ inline std::optional<ReceivedFrame> TryParseOneFrame(std::vector<uint8_t>& buf, 
 
 // Reads off a non-blocking, already-upgraded socket until one full
 // WebSocket frame has been received or `timeout` elapses. Used for the
-// app-level handshake (FinlinkMessages.h), where exactly one text frame
+// app-level handshake (UnisonMessages.h), where exactly one text frame
 // (hello_ack) is expected before any Video/Input binary frame.
 inline std::optional<ReceivedFrame> ReceiveOneWebSocketFrame(int fd, const std::atomic_bool& stop,
                                                                std::chrono::milliseconds timeout)
@@ -355,4 +355,4 @@ inline std::optional<ReceivedFrame> ReceiveOneWebSocketFrame(int fd, const std::
 
 }
 
-#endif // MELONDS_STREAMING_FINLINKWEBSOCKET_H
+#endif // MELONDS_STREAMING_UNISONWEBSOCKET_H

@@ -1,0 +1,98 @@
+name: Unison smoke
+
+# Fork-owned workflow, deliberately separate from the upstream-inherited
+# build-*.yml files so future syncs from melonDS-emu/melonDS don't collide
+# with anything unison-specific. Part of the Unison CI pipeline's
+# build-smoke stage; see unison/docs/capabilities.md and the 5-repo drift
+# snapshot in the plan this came from.
+#
+# Unlike the other three hosts, src/unison/ here isn't a git submodule at
+# all -- it's a committed, hand-synced copy of unison/core/ (see
+# src/unison/README.md's own "re-sync" instructions, and the CMakeLists.txt
+# comment at its include site), so there's no submodule pin to read. This
+# job instead diffs the vendored files directly against a fresh checkout of
+# Unison's main branch (the branch src/unison/README.md itself says it
+# was last synced from).
+
+on:
+  push:
+    branches: [master, ci/*]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unison-freshness:
+    name: src/unison freshness (vendored copy, no submodule)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Clone canonical Unison for comparison
+        run: git clone --depth 1 --branch main https://github.com/alwe2710/Unison.git /tmp/unison-canonical
+
+      - name: Compare vendored src/unison/ against unison/core on main
+        run: |
+          set -euo pipefail
+          status=0
+
+          # README.md is expected to differ -- it's src/unison's own
+          # hand-written sync note (see this workflow's own comment), not a
+          # copy of core/README.md. Its self-declared "commit `<sha>`" is
+          # the actual freshness signal, compared against main's real tip.
+          declared_sha="$(sed -nE 's/.*commit `([0-9a-f]+)`.*/\1/p' src/unison/README.md | head -1)"
+          latest_sha="$(git -C /tmp/unison-canonical rev-parse main)"
+          if [ -z "$declared_sha" ]; then
+            echo "::warning::src/unison/README.md doesn't state a synced-from commit hash (expected a 'commit \`<sha>\`' line) -- can't verify freshness from it."
+            status=1
+          elif [ "${latest_sha#"$declared_sha"}" = "$latest_sha" ]; then
+            # declared_sha isn't a prefix of latest_sha -- i.e. not the same commit.
+            echo "::warning::src/unison/README.md declares it was synced from commit $declared_sha, but Unison's main tip is now $latest_sha. Re-sync per the README's own instructions."
+            status=1
+          fi
+
+          # Every actual source file, independent of the declared commit
+          # above (catches a stale/wrong hash claim, or a partial re-sync).
+          while IFS= read -r -d '' f; do
+            rel="${f#src/unison/}"
+            [ "$rel" = "README.md" ] && continue
+            canonical="/tmp/unison-canonical/core/$rel"
+            if [ ! -f "$canonical" ]; then
+              echo "::warning::src/unison/$rel has no counterpart in unison/core on main (renamed/removed upstream, or deliberately not meant to be vendored here?)"
+              status=1
+              continue
+            fi
+            if ! cmp -s "$f" "$canonical"; then
+              echo "::warning::src/unison/$rel differs from unison/core/$rel on main -- vendored copy is stale."
+              status=1
+            fi
+          done < <(find src/unison -type f -print0)
+
+          exit $status
+
+  unison-messages-test:
+    # Deliberately separate from unison-freshness above and doesn't need
+    # any of melonDS's own build dependencies (Qt/SDL/etc.) -- see
+    # tests/CMakeLists.txt's own comment for why this points at a fresh
+    # canonical unison/core checkout rather than src/unison/'s stale
+    # vendored copy (which doesn't even declare session_ready.video_mode
+    # yet, see unison-freshness above), and note the branch here is
+    # `transcoding`, not `main` like unison-freshness's own comparison
+    # target -- video_mode itself only exists on transcoding, still
+    # unmerged as of this workflow being written.
+    name: UnisonMessages.cpp unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fetch canonical Unison core (for the round-trip assertions, not src/unison/'s stale copy)
+        run: git clone --depth 1 --branch transcoding https://github.com/alwe2710/Unison.git /tmp/unison-canonical
+
+      - name: Configure
+        run: |
+          cmake -S src/streaming/tests -B build/unison_messages_test \
+            -DUNISON_CORE_DIR=/tmp/unison-canonical/core
+      - name: Build
+        run: cmake --build build/unison_messages_test -j"$(nproc)"
+      - name: Test
+        working-directory: build/unison_messages_test
+        run: ctest --output-on-failure

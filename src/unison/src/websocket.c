@@ -1,4 +1,4 @@
-#include "finlink/websocket.h"
+#include "unison/websocket.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -71,12 +71,12 @@ static int ci_starts_with(const uint8_t *data, size_t size, const char *prefix) 
     return 1;
 }
 
-void finlink_ws_generate_key(const uint8_t random_bytes[16], char key_out[FINLINK_WS_KEY_BUF_LEN]) {
+void unison_ws_generate_key(const uint8_t random_bytes[16], char key_out[UNISON_WS_KEY_BUF_LEN]) {
     base64_encode(random_bytes, 16, key_out);
 }
 
-size_t finlink_ws_build_handshake_request(const char *host, const char *path,
-                                           const char key[FINLINK_WS_KEY_LEN], char *out_buf,
+size_t unison_ws_build_handshake_request(const char *host, const char *path,
+                                           const char key[UNISON_WS_KEY_LEN], char *out_buf,
                                            size_t out_capacity) {
     const int n = snprintf(out_buf, out_capacity,
                             "GET %s HTTP/1.1\r\n"
@@ -86,29 +86,29 @@ size_t finlink_ws_build_handshake_request(const char *host, const char *path,
                             "Sec-WebSocket-Key: %.*s\r\n"
                             "Sec-WebSocket-Version: 13\r\n"
                             "\r\n",
-                            path, host, (int)FINLINK_WS_KEY_LEN, key);
+                            path, host, (int)UNISON_WS_KEY_LEN, key);
     if (n < 0 || (size_t)n >= out_capacity) {
         return 0;
     }
     return (size_t)n;
 }
 
-finlink_ws_handshake_status finlink_ws_parse_handshake_response(const uint8_t *data, size_t size,
-                                                                  const char key[FINLINK_WS_KEY_LEN],
+unison_ws_handshake_status unison_ws_parse_handshake_response(const uint8_t *data, size_t size,
+                                                                  const char key[UNISON_WS_KEY_LEN],
                                                                   size_t *header_len) {
     const uint8_t *terminator = find_bytes(data, size, "\r\n\r\n");
     if (!terminator) {
-        return FINLINK_WS_HANDSHAKE_INCOMPLETE;
+        return UNISON_WS_HANDSHAKE_INCOMPLETE;
     }
     const size_t headers_len = (size_t)(terminator - data) + 4;
     *header_len = headers_len;
 
     const uint8_t *first_line_end = find_bytes(data, headers_len, "\r\n");
     if (!first_line_end) {
-        return FINLINK_WS_HANDSHAKE_ERR;
+        return UNISON_WS_HANDSHAKE_ERR;
     }
     if (!find_bytes(data, (size_t)(first_line_end - data), " 101 ")) {
-        return FINLINK_WS_HANDSHAKE_ERR;
+        return UNISON_WS_HANDSHAKE_ERR;
     }
 
     /* terminator points at the first byte of the blank line's "\r\n\r\n"
@@ -142,30 +142,30 @@ finlink_ws_handshake_status finlink_ws_parse_handshake_response(const uint8_t *d
         line = line_end + 2;
     }
 
-    if (!accept_value || accept_value_len != FINLINK_WS_ACCEPT_LEN) {
-        return FINLINK_WS_HANDSHAKE_ERR;
+    if (!accept_value || accept_value_len != UNISON_WS_ACCEPT_LEN) {
+        return UNISON_WS_HANDSHAKE_ERR;
     }
 
-    uint8_t concat[FINLINK_WS_KEY_LEN + 36];
-    memcpy(concat, key, FINLINK_WS_KEY_LEN);
-    memcpy(concat + FINLINK_WS_KEY_LEN, WS_GUID, 36);
+    uint8_t concat[UNISON_WS_KEY_LEN + 36];
+    memcpy(concat, key, UNISON_WS_KEY_LEN);
+    memcpy(concat + UNISON_WS_KEY_LEN, WS_GUID, 36);
 
     uint8_t digest[20];
     sha1digest(digest, NULL, concat, sizeof(concat));
 
-    char expected[FINLINK_WS_ACCEPT_LEN + 1];
+    char expected[UNISON_WS_ACCEPT_LEN + 1];
     base64_encode(digest, sizeof(digest), expected);
 
-    if (memcmp(accept_value, expected, FINLINK_WS_ACCEPT_LEN) != 0) {
-        return FINLINK_WS_HANDSHAKE_ERR;
+    if (memcmp(accept_value, expected, UNISON_WS_ACCEPT_LEN) != 0) {
+        return UNISON_WS_HANDSHAKE_ERR;
     }
 
-    return FINLINK_WS_HANDSHAKE_OK;
+    return UNISON_WS_HANDSHAKE_OK;
 }
 
-finlink_ws_frame_status finlink_ws_parse_frame(uint8_t *data, size_t size, finlink_ws_frame *out) {
+unison_ws_frame_status unison_ws_parse_frame(uint8_t *data, size_t size, unison_ws_frame *out) {
     if (size < 2) {
-        return FINLINK_WS_FRAME_INCOMPLETE;
+        return UNISON_WS_FRAME_INCOMPLETE;
     }
 
     const uint8_t b0 = data[0];
@@ -178,13 +178,13 @@ finlink_ws_frame_status finlink_ws_parse_frame(uint8_t *data, size_t size, finli
 
     if (len == 126) {
         if (size < 4) {
-            return FINLINK_WS_FRAME_INCOMPLETE;
+            return UNISON_WS_FRAME_INCOMPLETE;
         }
         len = ((uint64_t)data[2] << 8) | data[3];
         pos = 4;
     } else if (len == 127) {
         if (size < 10) {
-            return FINLINK_WS_FRAME_INCOMPLETE;
+            return UNISON_WS_FRAME_INCOMPLETE;
         }
         len = 0;
         for (int i = 0; i < 8; i++) {
@@ -193,32 +193,32 @@ finlink_ws_frame_status finlink_ws_parse_frame(uint8_t *data, size_t size, finli
         pos = 10;
     }
 
-    if (len > FINLINK_WS_MAX_FRAME_PAYLOAD) {
-        return FINLINK_WS_FRAME_ERR;
+    if (len > UNISON_WS_MAX_FRAME_PAYLOAD) {
+        return UNISON_WS_FRAME_ERR;
     }
 
     uint8_t mask_key[4] = {0};
     if (masked) {
         if (size < pos + 4) {
-            return FINLINK_WS_FRAME_INCOMPLETE;
+            return UNISON_WS_FRAME_INCOMPLETE;
         }
         memcpy(mask_key, data + pos, 4);
         pos += 4;
     }
 
     if (size < pos + (size_t)len) {
-        return FINLINK_WS_FRAME_INCOMPLETE;
+        return UNISON_WS_FRAME_INCOMPLETE;
     }
 
     if (!fin) {
         /* Fragmented frames are not supported on either side of this
          * protocol; treat one as a protocol error rather than silently
          * misinterpreting a partial message as complete. */
-        return FINLINK_WS_FRAME_ERR;
+        return UNISON_WS_FRAME_ERR;
     }
-    if (opcode != FINLINK_WS_OPCODE_TEXT && opcode != FINLINK_WS_OPCODE_BINARY &&
-        opcode != FINLINK_WS_OPCODE_CLOSE) {
-        return FINLINK_WS_FRAME_ERR;
+    if (opcode != UNISON_WS_OPCODE_TEXT && opcode != UNISON_WS_OPCODE_BINARY &&
+        opcode != UNISON_WS_OPCODE_CLOSE) {
+        return UNISON_WS_FRAME_ERR;
     }
 
     if (masked) {
@@ -227,18 +227,18 @@ finlink_ws_frame_status finlink_ws_parse_frame(uint8_t *data, size_t size, finli
         }
     }
 
-    out->opcode = (finlink_ws_opcode)opcode;
+    out->opcode = (unison_ws_opcode)opcode;
     out->payload = data + pos;
     out->payload_size = (size_t)len;
     out->frame_size = pos + (size_t)len;
-    return FINLINK_WS_FRAME_OK;
+    return UNISON_WS_FRAME_OK;
 }
 
-size_t finlink_ws_build_frame_max_size(size_t payload_size) {
+size_t unison_ws_build_frame_max_size(size_t payload_size) {
     return 10 /* max header incl. length field */ + 4 /* mask key */ + payload_size;
 }
 
-size_t finlink_ws_build_frame(finlink_ws_opcode opcode, const uint8_t *payload, size_t payload_size,
+size_t unison_ws_build_frame(unison_ws_opcode opcode, const uint8_t *payload, size_t payload_size,
                                const uint8_t mask_key[4], uint8_t *out_buf, size_t out_capacity) {
     uint8_t header[14];
     size_t header_len;

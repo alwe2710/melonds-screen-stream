@@ -81,7 +81,7 @@ struct GDBArgs
     bool ARM9BreakOnStartup = false;
 };
 
-/// How the NDS_BOTTOM_SCREEN finlink streaming server (src/streaming/)
+/// How the NDS_BOTTOM_SCREEN Unison streaming server (src/streaming/)
 /// should be configured. Mirrors GDBArgs's shape/usage: std::nullopt means
 /// disabled, see NDS::SetStreamingArgs().
 struct StreamArgs

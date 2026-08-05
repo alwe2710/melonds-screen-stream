@@ -2,7 +2,7 @@
 #define MINIZ_EXPORT_H
 
 /* Hand-written stand-in for the file CMake's GenerateExportHeader module
- * generates in upstream miniz. We only ever link finlink_core statically
+ * generates in upstream miniz. We only ever link unison_core statically
  * (across host, Android, 3DS, Switch, ...), so no dllexport/visibility
  * dance is needed. */
 

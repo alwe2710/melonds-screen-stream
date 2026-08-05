@@ -3,9 +3,9 @@
  * vendoring, github.com/richgel999/miniz) rather than vendoring all of
  * miniz.c: tdefl_compress() (miniz_tdef.c) references both symbols
  * unconditionally (mz_adler32() for the zlib-header/trailer path,
- * unused here since finlink_deflate_raw() never sets
+ * unused here since unison_deflate_raw() never sets
  * TDEFL_WRITE_ZLIB_HEADER, and mz_crc32() from an unrelated PNG-writing
- * helper in the same translation unit) even though finlink_core never
+ * helper in the same translation unit) even though unison_core never
  * actually calls either at runtime -- the reference alone is enough for
  * the linker to require a definition. The rest of miniz.c (zip archive
  * handling, PNG writing, etc.) is unrelated to this protocol and not

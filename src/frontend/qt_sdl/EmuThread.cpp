@@ -260,9 +260,9 @@ void EmuThread::run()
 
             // process input and hotkeys
             //
-            // A remote finlink client streaming the bottom screen (see
+            // A remote Unison client streaming the bottom screen (see
             // streaming/BottomScreenStream.h) wholesale overrides both
-            // touch and buttons together (finlink's "touch_and_buttons"
+            // touch and buttons together (Unison's "touch_and_buttons"
             // input_encoding, one combined frame -- no analog stick field
             // at all, unlike N3DS_BOTTOM_SCREEN/WIIU_GAMEPAD's
             // "n3ds_touch_and_buttons", since the DS has none) -- nullopt
@@ -270,11 +270,11 @@ void EmuThread::run()
             // local mouse/keyboard/joystick input is used exactly as
             // before for both.
             melonDS::Streaming::BottomScreenStream* stream = emuInstance->nds->GetStream();
-            std::optional<finlink_touch_and_buttons> inputOverride =
+            std::optional<unison_touch_and_buttons> inputOverride =
                 stream ? stream->GetInputOverride() : std::nullopt;
 
             emuInstance->nds->SetKeyMask(inputOverride
-                ? melonDS::Streaming::FinlinkButtonsToNdsKeyMask(inputOverride->buttons)
+                ? melonDS::Streaming::UnisonButtonsToNdsKeyMask(inputOverride->buttons)
                 : emuInstance->inputMask);
 
             if (inputOverride)
@@ -284,7 +284,7 @@ void EmuThread::run()
                     // touch_x/touch_y are in the CURRENT video-stream
                     // resolution's pixel space -- the client maps taps
                     // through whatever frame size it's actually displaying
-                    // (finlink's TouchOverlay), same as every other stream
+                    // (Unison's TouchOverlay), same as every other stream
                     // type/renderer combination has always assumed video
                     // and touch resolution are identical. That stopped
                     // being true once GLRenderer::CaptureBottomScreenBGRA8()
@@ -321,13 +321,13 @@ void EmuThread::run()
             // the emulated console" rule -- see BottomScreenStream.h's own
             // header comment. Harmless no-op call whenever no client is
             // connected (PollMicAudio() returns empty) or the user hasn't
-            // selected "Finlink Remote Microphone" as their mic input
-            // (micFeedFinlinkAudio() itself checks that).
+            // selected "Unison Remote Microphone" as their mic input
+            // (micFeedUnisonAudio() itself checks that).
             if (stream)
             {
                 std::vector<melonDS::s16> micSamples = stream->PollMicAudio();
                 if (!micSamples.empty())
-                    emuInstance->micFeedFinlinkAudio(micSamples.data(), (int)micSamples.size());
+                    emuInstance->micFeedUnisonAudio(micSamples.data(), (int)micSamples.size());
             }
 
             if (emuInstance->hotkeyPressed(HK_Lid))

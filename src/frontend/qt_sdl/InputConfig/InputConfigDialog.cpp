@@ -106,14 +106,14 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     // already applied elsewhere (AudioSettingsDialog.cpp) under the same
     // condition. The Addons/Hotkeys tabs are untouched -- those are host-
     // side conveniences (fast-forward, save states, ...), not DS button
-    // state finlink ever overrides.
+    // state Unison ever overrides.
     if (emuInstance->getNDS() && emuInstance->getNDS()->GetStream())
     {
         const int inputTabIndex = ui->tabWidget->indexOf(ui->tabInput);
         ui->tabWidget->setTabEnabled(inputTabIndex, false);
         ui->tabWidget->setTabToolTip(inputTabIndex,
             "Disabled while bottom-screen streaming is enabled: DS button/D-pad "
-            "input is provided by the connected finlink client instead.");
+            "input is provided by the connected Unison client instead.");
     }
 
     int inst = emuInstance->getInstanceID();

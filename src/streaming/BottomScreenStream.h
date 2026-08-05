@@ -19,10 +19,10 @@
 #ifndef MELONDS_STREAMING_BOTTOMSCREENSTREAM_H
 #define MELONDS_STREAMING_BOTTOMSCREENSTREAM_H
 
-// Server implementation for the NDS_BOTTOM_SCREEN finlink stream type: a
+// Server implementation for the NDS_BOTTOM_SCREEN Unison stream type: a
 // single-slot WebSocket server that streams the DS bottom screen (256x192)
 // to one remote client, and accepts touch, buttons, and microphone input
-// back, per finlink's docs/protocol.md. Deliberately does NOT forward DS
+// back, per Unison's docs/protocol.md. Deliberately does NOT forward DS
 // speaker audio to the client -- only video out, mic in. Sibling
 // implementation to azahar's own src/core/streaming/bottom_screen_stream.
 // {h,cpp} (N3DS_BOTTOM_SCREEN) and Cemu's WiiuGamepadStream (WIIU_GAMEPAD)
@@ -32,7 +32,7 @@
 // allocated RAM array, see GPU_Soft.h's Framebuffer[2][2]).
 //
 // Unlike Cemu/Azahar's mic forwarding, there's no "the game currently has
-// the mic open" signal to gate FINLINK_MSG_MIC_ENABLE on here -- melonDS's
+// the mic open" signal to gate UNISON_MSG_MIC_ENABLE on here -- melonDS's
 // own Mic::FeedBuffer()/Platform::Mic_ReadInput() poll continuously
 // regardless of what the game does with the samples (no MICStatus.isOpen-
 // style state exists at this layer), matching the DS's own simpler
@@ -85,9 +85,9 @@
 #include <thread>
 #include <vector>
 
-#include <finlink/protocol.h>
+#include <unison/protocol.h>
 
-#include "FinlinkMessages.h"
+#include "UnisonMessages.h"
 
 namespace melonDS
 {
@@ -117,15 +117,15 @@ public:
     // recently instead of hardcoding those constants.
     void OnFrameEnd(const uint32_t* bottomBgra, uint32_t width, uint32_t height) noexcept;
 
-    // Touch + buttons, combined per finlink's "touch_and_buttons"
-    // input_encoding (finlink_touch_and_buttons, finlink/protocol.h) --
+    // Touch + buttons, combined per Unison's "touch_and_buttons"
+    // input_encoding (unison_touch_and_buttons, unison/protocol.h) --
     // a dedicated encoding with no stick fields at all, since the DS has
-    // no analog stick (see FinlinkMessages.h's own comment on why this
-    // isn't "n3ds_touch_and_buttons"/finlink_extended_input instead).
+    // no analog stick (see UnisonMessages.h's own comment on why this
+    // isn't "n3ds_touch_and_buttons"/unison_extended_input instead).
     // nullopt whenever no client is in an active (post-session_ready)
     // session -- caller should fall back to local touch/button input in
     // that case.
-    [[nodiscard]] std::optional<finlink_touch_and_buttons> GetInputOverride() const noexcept;
+    [[nodiscard]] std::optional<unison_touch_and_buttons> GetInputOverride() const noexcept;
 
     // Current video-stream resolution -- whatever CaptureBottomScreenBGRA8()
     // (GPU_OpenGL.cpp)/GetFramebuffers() (GPU_Soft.cpp) last reported via
@@ -139,7 +139,7 @@ public:
     void GetFrameDimensions(uint32_t& width, uint32_t& height) const noexcept;
 
     // Drains and returns whatever mic audio the client has sent since the
-    // last call (never blocks) -- EmuInstance::micFeedFinlinkAudio() (via
+    // last call (never blocks) -- EmuInstance::micFeedUnisonAudio() (via
     // EmuThread.cpp's per-frame poll) drains this once per emulated frame.
     // Empty if nothing new has arrived. Native s16 samples, mono (the DS
     // mic, like the 3DS's, is mono-only).
@@ -152,9 +152,9 @@ private:
     void ServeConnection(int fd);
     void RunSession(int fd);
 
-    // UDP discovery beacon (finlink/discovery.h, docs/protocol.md's
-    // "Discovery-Beacon (UDP)") -- broadcasts a finlink_beacon JSON payload
-    // on FINLINK_BEACON_PORT every ~2s so the Android client's network
+    // UDP discovery beacon (unison/discovery.h, docs/protocol.md's
+    // "Discovery-Beacon (UDP)") -- broadcasts a unison_beacon JSON payload
+    // on UNISON_BEACON_PORT every ~2s so the Android client's network
     // search can find this instance, mirroring Cemu's Beacon and azahar's
     // Core::Streaming::Beacon. Kept as a plain thread here (sharing `Stop`)
     // rather than a separate RAII object: ~BottomScreenStream() explicitly
@@ -177,7 +177,7 @@ private:
     std::vector<std::thread> ConnectionThreads;
 
     // Claimed by the one session currently allowed to stream (this stream
-    // type has exactly one slot, see FinlinkMessages.cpp).
+    // type has exactly one slot, see UnisonMessages.cpp).
     std::atomic_bool Active{false};
 
     mutable std::mutex FrameMutex;
@@ -190,9 +190,9 @@ private:
     std::atomic_bool TouchPressed{false};
     std::atomic<uint16_t> TouchX{0};
     std::atomic<uint16_t> TouchY{0};
-    std::atomic<uint32_t> Buttons{0}; // finlink_button_bit bits, see GetInputOverride()
+    std::atomic<uint32_t> Buttons{0}; // unison_button_bit bits, see GetInputOverride()
 
-    // Mic input pending delivery to EmuInstance::micFeedFinlinkAudio() --
+    // Mic input pending delivery to EmuInstance::micFeedUnisonAudio() --
     // FIFO queue (not "latest wins"), same reasoning as the sibling
     // Cemu/Azahar implementations: dropping anything but a bounded backlog
     // would produce audible gaps.
@@ -204,11 +204,11 @@ private:
 #endif
 };
 
-// Translates a finlink_button_bit bitmask (protocol.h, active-high) into
+// Translates a unison_button_bit bitmask (protocol.h, active-high) into
 // NDS::SetKeyMask()'s own bit layout (NDS.cpp: bits 0-9 = A,B,Select,Start,
 // Right,Left,Up,Down,R,L; bits 10-11 = X,Y; active-LOW, 1 = released).
 // ZL/ZR/HOME have no DS equivalent and are ignored.
-uint32_t FinlinkButtonsToNdsKeyMask(uint32_t finlinkButtons) noexcept;
+uint32_t UnisonButtonsToNdsKeyMask(uint32_t unisonButtons) noexcept;
 
 }
 }

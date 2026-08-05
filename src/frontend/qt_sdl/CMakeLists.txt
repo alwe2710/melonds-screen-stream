@@ -185,11 +185,11 @@ target_include_directories(melonDS PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     # EmuThread.cpp/EmuInstanceAudio.cpp include streaming/BottomScreenStream.h,
-    # which includes <finlink/protocol.h> -- core's own include dir for this
+    # which includes <unison/protocol.h> -- core's own include dir for this
     # is PRIVATE (src/CMakeLists.txt), so it doesn't propagate here despite
     # linking core, same as every other non-owning target that merely
     # #includes that header.
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../finlink/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../unison/include")
 
 if (USE_QT6)
     target_include_directories(melonDS PUBLIC ${Qt6Gui_PRIVATE_INCLUDE_DIRS})

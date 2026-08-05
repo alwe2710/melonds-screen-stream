@@ -36,12 +36,12 @@
 #include <cstring>
 #include <sstream>
 
-#include "finlink/deflate.h"
-#include "finlink/discovery.h"
-#include "finlink/endian.h"
-#include "finlink/protocol.h"
-#include "FinlinkMessages.h"
-#include "FinlinkWebSocket.h"
+#include "unison/deflate.h"
+#include "unison/discovery.h"
+#include "unison/endian.h"
+#include "unison/protocol.h"
+#include "UnisonMessages.h"
+#include "UnisonWebSocket.h"
 
 #include "NDS.h"
 #include "Platform.h"
@@ -88,10 +88,10 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, u
     std::vector<uint8_t> rgb565;
     ConvertBgra8ToRgb565(bgra8.data(), width, height, rgb565);
 
-    std::vector<uint8_t> compressed(finlink_deflate_max_size(rgb565.size()));
+    std::vector<uint8_t> compressed(unison_deflate_max_size(rgb565.size()));
     size_t compressedSize = 0;
-    if (finlink_deflate_raw(rgb565.data(), rgb565.size(), compressed.data(), compressed.size(),
-                             &compressedSize) != FINLINK_DEFLATE_OK)
+    if (unison_deflate_raw(rgb565.data(), rgb565.size(), compressed.data(), compressed.size(),
+                             &compressedSize) != UNISON_DEFLATE_OK)
     {
         Log(LogLevel::Error, "[Stream] failed to compress video frame\n");
         return false;
@@ -100,7 +100,7 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, u
 
     std::vector<uint8_t> message;
     message.reserve(10 + compressed.size());
-    message.push_back((uint8_t)FINLINK_MSG_VIDEO);
+    message.push_back((uint8_t)UNISON_MSG_VIDEO);
     AppendU32LE(message, width);
     AppendU32LE(message, height);
     message.push_back(0); // format = 0: full frame, raw (non-indexed, non-tiled) RGB565.
@@ -145,7 +145,7 @@ std::string ProbeLocalHost()
 // Escapes a string for embedding as a JSON string literal -- only ever used
 // here for game_title, which in principle could contain arbitrary bytes
 // from a malformed/homebrew ROM header, so this is defensive rather than
-// provably unnecessary (mirrors FinlinkMessages.cpp's own JsonEscape(),
+// provably unnecessary (mirrors UnisonMessages.cpp's own JsonEscape(),
 // duplicated here rather than shared since that one is file-local too).
 std::string JsonEscapeBeaconString(const std::string& in)
 {
@@ -178,25 +178,25 @@ std::string JsonEscapeBeaconString(const std::string& in)
 
 }
 
-uint32_t FinlinkButtonsToNdsKeyMask(uint32_t finlinkButtons) noexcept
+uint32_t UnisonButtonsToNdsKeyMask(uint32_t unisonButtons) noexcept
 {
     uint32_t mask = 0xFFF; // start with everything released (active-low)
     auto apply = [&](bool pressed, int ndsBit) {
         if (pressed)
             mask &= ~(1u << ndsBit);
     };
-    apply(finlinkButtons & FINLINK_BUTTON_A, 0);
-    apply(finlinkButtons & FINLINK_BUTTON_B, 1);
-    apply(finlinkButtons & FINLINK_BUTTON_SELECT, 2);
-    apply(finlinkButtons & FINLINK_BUTTON_START, 3);
-    apply(finlinkButtons & FINLINK_BUTTON_RIGHT, 4);
-    apply(finlinkButtons & FINLINK_BUTTON_LEFT, 5);
-    apply(finlinkButtons & FINLINK_BUTTON_UP, 6);
-    apply(finlinkButtons & FINLINK_BUTTON_DOWN, 7);
-    apply(finlinkButtons & FINLINK_BUTTON_R, 8);
-    apply(finlinkButtons & FINLINK_BUTTON_L, 9);
-    apply(finlinkButtons & FINLINK_BUTTON_X, 10);
-    apply(finlinkButtons & FINLINK_BUTTON_Y, 11);
+    apply(unisonButtons & UNISON_BUTTON_A, 0);
+    apply(unisonButtons & UNISON_BUTTON_B, 1);
+    apply(unisonButtons & UNISON_BUTTON_SELECT, 2);
+    apply(unisonButtons & UNISON_BUTTON_START, 3);
+    apply(unisonButtons & UNISON_BUTTON_RIGHT, 4);
+    apply(unisonButtons & UNISON_BUTTON_LEFT, 5);
+    apply(unisonButtons & UNISON_BUTTON_UP, 6);
+    apply(unisonButtons & UNISON_BUTTON_DOWN, 7);
+    apply(unisonButtons & UNISON_BUTTON_R, 8);
+    apply(unisonButtons & UNISON_BUTTON_L, 9);
+    apply(unisonButtons & UNISON_BUTTON_X, 10);
+    apply(unisonButtons & UNISON_BUTTON_Y, 11);
     return mask;
 }
 
@@ -291,11 +291,11 @@ void BottomScreenStream::OnFrameEnd(const uint32_t* bottomBgra, uint32_t width, 
     FrameId++;
 }
 
-std::optional<finlink_touch_and_buttons> BottomScreenStream::GetInputOverride() const noexcept
+std::optional<unison_touch_and_buttons> BottomScreenStream::GetInputOverride() const noexcept
 {
     if (!Streaming.load(std::memory_order_relaxed))
         return std::nullopt;
-    finlink_touch_and_buttons result{};
+    unison_touch_and_buttons result{};
     result.pressed = TouchPressed.load(std::memory_order_relaxed) ? 1 : 0;
     result.touch_x = TouchX.load(std::memory_order_relaxed);
     result.touch_y = TouchY.load(std::memory_order_relaxed);
@@ -352,7 +352,7 @@ std::string BottomScreenStream::BuildBeaconMessage(const std::string& localHost)
 
     std::ostringstream out;
     out << "{"
-        << "\"type\":\"finlink_beacon\","
+        << "\"type\":\"unison_beacon\","
         << "\"protocol_version\":" << kProtocolVersion << ","
         << "\"emulator_identifier\":\"melonDS\","
         << "\"game_title\":\"" << JsonEscapeBeaconString(title) << "\","
@@ -384,7 +384,7 @@ void BottomScreenStream::BeaconLoop()
     struct sockaddr_in broadcastAddr{};
     broadcastAddr.sin_family = AF_INET;
     broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    broadcastAddr.sin_port = htons((uint16_t)FINLINK_BEACON_PORT);
+    broadcastAddr.sin_port = htons((uint16_t)UNISON_BEACON_PORT);
 
     while (!Stop)
     {
@@ -431,7 +431,7 @@ void BottomScreenStream::ServeConnection(int fd)
     }
 
     const auto frame = ReceiveOneWebSocketFrame(fd, Stop, std::chrono::seconds(5));
-    if (!frame || frame->Opcode != FINLINK_WS_OPCODE_TEXT)
+    if (!frame || frame->Opcode != UNISON_WS_OPCODE_TEXT)
     {
         closesocket(fd);
         return;
@@ -479,7 +479,7 @@ void BottomScreenStream::ServeConnection(int fd)
     Active = false;
     // Drop any mic audio this client sent but nobody drained yet -- left
     // sitting here, it would otherwise get fed to
-    // EmuInstance::micFeedFinlinkAudio() as if it were fresh once a later
+    // EmuInstance::micFeedUnisonAudio() as if it were fresh once a later
     // session (or a belated poll from this one) reads it, mislabeling
     // stale audio as current.
     {
@@ -501,12 +501,12 @@ void BottomScreenStream::RunSession(int fd)
     // up front rather than tracking an edge-detected want-state like
     // Cemu/Azahar do for their own mic forwarding.
     {
-        finlink_mic_enable enable;
+        unison_mic_enable enable;
         enable.enabled = 1;
         enable.sample_rate = kMicSampleRate;
-        uint8_t payload[FINLINK_MIC_ENABLE_FRAME_SIZE];
-        finlink_build_mic_enable_frame(&enable, payload);
-        std::vector<uint8_t> message(payload, payload + FINLINK_MIC_ENABLE_FRAME_SIZE);
+        uint8_t payload[UNISON_MIC_ENABLE_FRAME_SIZE];
+        unison_build_mic_enable_frame(&enable, payload);
+        std::vector<uint8_t> message(payload, payload + UNISON_MIC_ENABLE_FRAME_SIZE);
         if (!SendWebSocketBinaryFrame(fd, message, Stop))
             return;
     }
@@ -551,19 +551,19 @@ void BottomScreenStream::RunSession(int fd)
                         return;
                     break;
                 }
-                if (parsed->Opcode == FINLINK_WS_OPCODE_CLOSE)
+                if (parsed->Opcode == UNISON_WS_OPCODE_CLOSE)
                     return;
-                if (parsed->Opcode != FINLINK_WS_OPCODE_BINARY)
+                if (parsed->Opcode != UNISON_WS_OPCODE_BINARY)
                     continue;
 
-                finlink_msg_type type;
-                if (finlink_peek_type(parsed->Payload.data(), parsed->Payload.size(), &type) != FINLINK_OK)
+                unison_msg_type type;
+                if (unison_peek_type(parsed->Payload.data(), parsed->Payload.size(), &type) != UNISON_OK)
                     continue;
-                if (type == FINLINK_MSG_INPUT)
+                if (type == UNISON_MSG_INPUT)
                 {
-                    finlink_touch_and_buttons input{};
-                    if (finlink_parse_touch_and_buttons_frame(parsed->Payload.data(), parsed->Payload.size(),
-                                                               &input) == FINLINK_OK)
+                    unison_touch_and_buttons input{};
+                    if (unison_parse_touch_and_buttons_frame(parsed->Payload.data(), parsed->Payload.size(),
+                                                               &input) == UNISON_OK)
                     {
                         TouchPressed = input.pressed != 0;
                         TouchX = input.touch_x;
@@ -571,14 +571,14 @@ void BottomScreenStream::RunSession(int fd)
                         Buttons = input.buttons;
                     }
                 }
-                else if (type == FINLINK_MSG_MIC_AUDIO)
+                else if (type == UNISON_MSG_MIC_AUDIO)
                 {
-                    finlink_audio_frame audio{};
-                    if (finlink_parse_mic_audio_frame(parsed->Payload.data(), parsed->Payload.size(),
-                                                       &audio) == FINLINK_OK)
+                    unison_audio_frame audio{};
+                    if (unison_parse_mic_audio_frame(parsed->Payload.data(), parsed->Payload.size(),
+                                                       &audio) == UNISON_OK)
                     {
                         std::lock_guard lock(MicMutex);
-                        // PollMicAudio()/EmuInstance::micFeedFinlinkAudio()
+                        // PollMicAudio()/EmuInstance::micFeedUnisonAudio()
                         // only ever see raw sample bytes, not a rate -- they
                         // trust the client to always send at kMicSampleRate,
                         // the only rate ever advertised via MIC_ENABLE here.
@@ -596,7 +596,7 @@ void BottomScreenStream::RunSession(int fd)
                         if (PendingMicAudio.size() + audio.sample_count > kMaxPendingSamples)
                             PendingMicAudio.clear();
                         for (size_t i = 0; i < audio.sample_count; i++)
-                            PendingMicAudio.push_back(finlink_read_s16le(audio.samples + i * 2));
+                            PendingMicAudio.push_back(unison_read_s16le(audio.samples + i * 2));
                     }
                 }
             }

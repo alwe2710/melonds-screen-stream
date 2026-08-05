@@ -12,7 +12,7 @@
 <a href="https://github.com/melonDS-emu/melonDS/actions/workflows/build-macos.yml?query=event%3Apush"><img src="https://github.com/melonDS-emu/melonDS/actions/workflows/build-macos.yml/badge.svg" /></a>
 <a href="https://github.com/melonDS-emu/melonDS/actions/workflows/build-bsd.yml?query=event%3Apush"><img src="https://github.com/melonDS-emu/melonDS/actions/workflows/build-bsd.yml/badge.svg" /></a>
 <br>
-<a href="https://github.com/alwe2710/melonds-screen-stream/actions/workflows/finlink-smoke.yml"><img src="https://github.com/alwe2710/melonds-screen-stream/actions/workflows/finlink-smoke.yml/badge.svg" alt="finlink smoke (this fork)" /></a>
+<a href="https://github.com/alwe2710/melonds-screen-stream/actions/workflows/unison-smoke.yml"><img src="https://github.com/alwe2710/melonds-screen-stream/actions/workflows/unison-smoke.yml/badge.svg" alt="Unison smoke (this fork)" /></a>
 </p>
 DS emulator, sorta
 

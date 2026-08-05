@@ -1,25 +1,25 @@
-// FinlinkMessages.{h,cpp} had zero test coverage before this file, despite
+// UnisonMessages.{h,cpp} had zero test coverage before this file, despite
 // being exactly where hello_ack.video_mode gets parsed and
 // session_ready.video_mode gets reported -- the two fields the "Video-mode
-// fallback" negotiation feature (finlink/docs/protocol.md) actually runs
+// fallback" negotiation feature (unison/docs/protocol.md) actually runs
 // on. Standalone, deliberately not wired into melonDS's own (huge) CMake
-// build: FinlinkMessages.cpp only depends on finlink/json.h's span parser
+// build: UnisonMessages.cpp only depends on unison/json.h's span parser
 // (see its own header comment, "no socket I/O"), so this links against
 // just that, not the rest of melonDS -- see tests/CMakeLists.txt.
 //
-// Uses the top-level finlink/core (not src/finlink/'s own vendored, hand-
+// Uses the top-level unison/core (not src/unison/'s own vendored, hand-
 // synced copy) for the round-trip assertions below: that vendored copy
-// still predates hello_ack.video_mode/FINLINK_VIDEO_MODE_LEN entirely
-// (see FinlinkMessages.cpp's own comment on why ParseHelloAck() uses a
+// still predates hello_ack.video_mode/UNISON_VIDEO_MODE_LEN entirely
+// (see UnisonMessages.cpp's own comment on why ParseHelloAck() uses a
 // literal 16 instead of the real constant), so it can't even declare
-// finlink_session_ready.video_mode to parse into. Testing this fork's own
+// unison_session_ready.video_mode to parse into. Testing this fork's own
 // message-building logic against the current, correct protocol shape is
-// the more useful reference regardless -- src/finlink/'s own staleness is
+// the more useful reference regardless -- src/unison/'s own staleness is
 // a separate, already-tracked issue (its own README's re-sync note).
 
-#include "../FinlinkMessages.h"
+#include "../UnisonMessages.h"
 
-#include "finlink/handshake.h"
+#include "unison/handshake.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -54,12 +54,12 @@ void TestBuildHelloMessage()
     CHECK(hello.find("\"height\":192") != std::string::npos);
     CHECK(hello.find("\"input_encoding\":\"touch_and_buttons\"") != std::string::npos);
     // No "audio" member at all for this stream type (see BuildHelloMessage's
-    // own comment on FINLINK_MSG_MIC_ENABLE being separate).
+    // own comment on UNISON_MSG_MIC_ENABLE being separate).
     CHECK(hello.find("\"audio\"") == std::string::npos);
 
-    finlink_hello parsed;
-    CHECK(finlink_parse_hello(reinterpret_cast<const uint8_t*>(hello.data()), hello.size(), &parsed) ==
-          FINLINK_HANDSHAKE_OK);
+    unison_hello parsed;
+    CHECK(unison_parse_hello(reinterpret_cast<const uint8_t*>(hello.data()), hello.size(), &parsed) ==
+          UNISON_HANDSHAKE_OK);
     CHECK(parsed.protocol_version == kProtocolVersion);
     CHECK(std::strcmp(parsed.stream_type, kStreamType) == 0);
     CHECK(!parsed.has_audio);
@@ -76,7 +76,7 @@ void TestParseHelloAckVideoMode()
 {
     // No video_mode field at all -- must stay empty (this fork's
     // HandshakeAck has no default-to-"tiles" behavior the way Cemu's does;
-    // it's parsed purely for reporting, see FinlinkMessages.h's own
+    // it's parsed purely for reporting, see UnisonMessages.h's own
     // comment), not garbage/uninitialized.
     const auto no_mode =
         ParseHelloAck(ToBytes(R"({"message":"hello_ack","protocol_version":2,"requested_slot":0})"));
@@ -118,9 +118,9 @@ void TestBuildSessionReadyMessageAlwaysLegacy()
     const std::string ready_json = BuildSessionReadyMessage();
     CHECK(ready_json.find("\"message\":\"session_ready\"") != std::string::npos);
 
-    finlink_session_ready parsed;
-    CHECK(finlink_parse_session_ready(reinterpret_cast<const uint8_t*>(ready_json.data()), ready_json.size(),
-                                       &parsed) == FINLINK_HANDSHAKE_OK);
+    unison_session_ready parsed;
+    CHECK(unison_parse_session_ready(reinterpret_cast<const uint8_t*>(ready_json.data()), ready_json.size(),
+                                       &parsed) == UNISON_HANDSHAKE_OK);
     CHECK(std::strcmp(parsed.video_mode, "legacy") == 0);
     CHECK(parsed.video.width == kStreamWidth && parsed.video.height == kStreamHeight);
     // No audio, no redirect -- see BuildSessionReadyMessage()'s own comment.
@@ -133,9 +133,9 @@ void TestBuildHandshakeErrorMessage()
     const std::string err_json =
         BuildHandshakeErrorMessage(HandshakeErrorCode::MalformedRequest, R"(bad "field" \ value)");
 
-    finlink_handshake_error parsed;
-    CHECK(finlink_parse_handshake_error(reinterpret_cast<const uint8_t*>(err_json.data()), err_json.size(),
-                                         &parsed) == FINLINK_HANDSHAKE_OK);
+    unison_handshake_error parsed;
+    CHECK(unison_parse_handshake_error(reinterpret_cast<const uint8_t*>(err_json.data()), err_json.size(),
+                                         &parsed) == UNISON_HANDSHAKE_OK);
     CHECK(std::strcmp(parsed.code, "malformed_request") == 0);
     CHECK(std::strcmp(parsed.detail, R"(bad "field" \ value)") == 0);
 }
@@ -149,6 +149,6 @@ int main()
     TestParseHelloAckRejectsMalformed();
     TestBuildSessionReadyMessageAlwaysLegacy();
     TestBuildHandshakeErrorMessage();
-    std::printf("finlink_messages: all tests passed\n");
+    std::printf("unison_messages: all tests passed\n");
     return 0;
 }

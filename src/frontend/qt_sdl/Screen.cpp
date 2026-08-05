@@ -153,7 +153,7 @@ void ScreenPanel::setupScreenLayout()
     if (sizing == screenSizing_Auto) sizing = autoScreenSizing;
 
     // While bottom-screen streaming is enabled, the bottom screen is
-    // already shown on the connected finlink client (and driven by ITS
+    // already shown on the connected Unison client (and driven by ITS
     // touch input, not the local mouse) -- showing it again here too is
     // redundant at best and confusing at worst (a local click there does
     // nothing, unlike every other screen region). Force top-screen-only

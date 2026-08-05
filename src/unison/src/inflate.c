@@ -1,8 +1,8 @@
-#include "finlink/inflate.h"
+#include "unison/inflate.h"
 
 #include "miniz_tinfl.h"
 
-finlink_inflate_status finlink_inflate_raw(const uint8_t *src, size_t src_size,
+unison_inflate_status unison_inflate_raw(const uint8_t *src, size_t src_size,
                                             uint8_t *out_buf, size_t out_capacity,
                                             size_t *out_size) {
     /* Whole compressed frame is already in memory (the WebSocket layer
@@ -14,9 +14,9 @@ finlink_inflate_status finlink_inflate_raw(const uint8_t *src, size_t src_size,
         out_buf, out_capacity, src, src_size, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
 
     if (written == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED) {
-        return FINLINK_INFLATE_ERR;
+        return UNISON_INFLATE_ERR;
     }
 
     *out_size = written;
-    return FINLINK_INFLATE_OK;
+    return UNISON_INFLATE_OK;
 }

@@ -333,7 +333,7 @@ public: // TODO: Encapsulate the rest of these members
     melonDS::GPU GPU;
     melonDS::AREngine AREngine;
 
-    // NDS_BOTTOM_SCREEN finlink streaming server, see SetStreamingArgs() and
+    // NDS_BOTTOM_SCREEN Unison streaming server, see SetStreamingArgs() and
     // GetStream(). nullptr unless explicitly configured -- default-
     // constructed here (to nullptr), actually (re)configured in the NDS
     // constructor's body and in SetStreamingArgs(), both after GPU already

@@ -16,13 +16,13 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#include "FinlinkMessages.h"
+#include "UnisonMessages.h"
 
 #include <cstdio>
 #include <cstring>
 #include <sstream>
 
-#include "finlink/json.h"
+#include "unison/json.h"
 
 namespace melonDS::Streaming
 {
@@ -76,13 +76,13 @@ std::string JsonEscape(const std::string& in)
 }
 
 // whole_object(): the top-level JSON object always spans the entire
-// payload -- finlink_json_find_member() skips leading whitespace itself, so
+// payload -- unison_json_find_member() skips leading whitespace itself, so
 // passing (0, size) directly works without locating the braces by hand.
-// Same trivial helper the finlink client-side code
+// Same trivial helper the Unison client-side code
 // (core/src/handshake.c's own whole_object()) uses for the same reason.
-finlink_json_span WholeObject(size_t size)
+unison_json_span WholeObject(size_t size)
 {
-    finlink_json_span span;
+    unison_json_span span;
     span.found = 1;
     span.start = 0;
     span.end = size;
@@ -117,33 +117,33 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
         return std::nullopt;
 
     const char* text = reinterpret_cast<const char*>(payload.data());
-    const finlink_json_span obj = WholeObject(payload.size());
+    const unison_json_span obj = WholeObject(payload.size());
 
     char message[16];
-    if (finlink_json_get_string(text, finlink_json_find_member(text, obj.start, obj.end, "message"),
+    if (unison_json_get_string(text, unison_json_find_member(text, obj.start, obj.end, "message"),
                                  message, sizeof(message)) == (size_t)-1)
         return std::nullopt;
     if (strcmp(message, "hello_ack") != 0)
         return std::nullopt;
 
-    const finlink_json_span versionSpan = finlink_json_find_member(text, obj.start, obj.end, "protocol_version");
-    const finlink_json_span slotSpan = finlink_json_find_member(text, obj.start, obj.end, "requested_slot");
+    const unison_json_span versionSpan = unison_json_find_member(text, obj.start, obj.end, "protocol_version");
+    const unison_json_span slotSpan = unison_json_find_member(text, obj.start, obj.end, "requested_slot");
     if (!versionSpan.found || !slotSpan.found)
         return std::nullopt;
 
     HandshakeAck ack;
-    ack.ProtocolVersion = (int)finlink_json_get_number(text, versionSpan);
-    ack.RequestedSlot = (int)finlink_json_get_number(text, slotSpan);
-    // 16, not FINLINK_VIDEO_MODE_LEN: src/finlink/'s vendored finlink_core
-    // predates hello_ack.video_mode/FINLINK_VIDEO_MODE_LEN existing at all
-    // (it was last hand-synced from finlink's main branch, see
-    // src/finlink/README.md -- video_mode itself only exists on finlink's
+    ack.ProtocolVersion = (int)unison_json_get_number(text, versionSpan);
+    ack.RequestedSlot = (int)unison_json_get_number(text, slotSpan);
+    // 16, not UNISON_VIDEO_MODE_LEN: src/unison/'s vendored unison_core
+    // predates hello_ack.video_mode/UNISON_VIDEO_MODE_LEN existing at all
+    // (it was last hand-synced from Unison's main branch, see
+    // src/unison/README.md -- video_mode itself only exists on Unison's
     // still-unmerged transcoding branch). Matches the value
-    // FINLINK_VIDEO_MODE_LEN has on transcoding today; switch this to the
-    // real constant once src/finlink/ is re-synced past that point (same
-    // situation as FinlinkWebSocket.h's FINLINK_WS_SEND_TIMEOUT_MS comment).
+    // UNISON_VIDEO_MODE_LEN has on transcoding today; switch this to the
+    // real constant once src/unison/ is re-synced past that point (same
+    // situation as UnisonWebSocket.h's UNISON_WS_SEND_TIMEOUT_MS comment).
     char videoMode[16];
-    if (finlink_json_get_string(text, finlink_json_find_member(text, obj.start, obj.end, "video_mode"), videoMode, sizeof(videoMode)) != (size_t)-1)
+    if (unison_json_get_string(text, unison_json_find_member(text, obj.start, obj.end, "video_mode"), videoMode, sizeof(videoMode)) != (size_t)-1)
         ack.VideoMode = videoMode;
     return ack;
 }
@@ -154,14 +154,14 @@ std::string BuildSessionReadyMessage()
     // type (fixed 256x192, small enough that no realistic client's
     // video_limits would ever need to shrink it), no audio (this stream
     // type never sends console/speaker audio -- only mic input, which
-    // isn't part of this negotiation, see FINLINK_MSG_MIC_ENABLE), no
+    // isn't part of this negotiation, see UNISON_MSG_MIC_ENABLE), no
     // redirect (single slot).
     //
     // video_mode is always "legacy" regardless of what was requested in
     // hello_ack (see HandshakeAck::VideoMode's own comment) -- this stream
     // type has no TILES/H264/H265 encoder, only ever sends a full raw frame
     // (SendVideoFrame's hardcoded format=0, see BottomScreenStream.cpp).
-    // Reporting the honest fallback here, per finlink's docs/protocol.md
+    // Reporting the honest fallback here, per Unison's docs/protocol.md
     // "Video-mode fallback", is what lets a client that requested something
     // else show a fallback prompt instead of silently getting legacy video
     // with no explanation.

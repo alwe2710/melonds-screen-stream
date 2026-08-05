@@ -1,4 +1,4 @@
-#include "finlink/json.h"
+#include "unison/json.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -72,9 +72,9 @@ static size_t skip_value(const char *text, size_t pos, size_t end) {
     return pos;
 }
 
-finlink_json_span finlink_json_find_member(const char *text, size_t obj_start, size_t obj_end,
+unison_json_span unison_json_find_member(const char *text, size_t obj_start, size_t obj_end,
                                             const char *key) {
-    finlink_json_span result = {0, 0, 0};
+    unison_json_span result = {0, 0, 0};
     size_t pos = skip_ws(text, obj_start, obj_end);
     if (pos >= obj_end || text[pos] != '{') {
         return result;
@@ -139,7 +139,7 @@ static unsigned int hex_digit(char h) {
     return 0xFFu; /* sentinel: not a hex digit */
 }
 
-size_t finlink_json_get_string(const char *text, finlink_json_span span, char *out_buf,
+size_t unison_json_get_string(const char *text, unison_json_span span, char *out_buf,
                                 size_t out_capacity) {
     if (!span.found || span.end <= span.start || text[span.start] != '"') {
         return (size_t)-1;
@@ -256,7 +256,7 @@ size_t finlink_json_get_string(const char *text, finlink_json_span span, char *o
     return out_len;
 }
 
-double finlink_json_get_number(const char *text, finlink_json_span span) {
+double unison_json_get_number(const char *text, unison_json_span span) {
     if (!span.found || span.end <= span.start) {
         return 0.0;
     }
@@ -270,7 +270,7 @@ double finlink_json_get_number(const char *text, finlink_json_span span) {
     return strtod(buf, NULL);
 }
 
-int finlink_json_get_bool(const char *text, finlink_json_span span) {
+int unison_json_get_bool(const char *text, unison_json_span span) {
     if (!span.found) {
         return 0;
     }
@@ -278,9 +278,9 @@ int finlink_json_get_bool(const char *text, finlink_json_span span) {
     return len == 4 && memcmp(text + span.start, "true", 4) == 0;
 }
 
-finlink_json_span finlink_json_array_next(const char *text, size_t arr_start, size_t arr_end,
-                                           finlink_json_span previous) {
-    finlink_json_span result = {0, 0, 0};
+unison_json_span unison_json_array_next(const char *text, size_t arr_start, size_t arr_end,
+                                           unison_json_span previous) {
+    unison_json_span result = {0, 0, 0};
     size_t pos = skip_ws(text, arr_start, arr_end);
     if (pos >= arr_end || text[pos] != '[') {
         return result;

@@ -65,13 +65,13 @@ enum
     micInputType_External,
     micInputType_Noise,
     micInputType_Wav,
-    // Sources the DS mic from a connected finlink client's own real
+    // Sources the DS mic from a connected Unison client's own real
     // microphone (see streaming/BottomScreenStream.h) instead of a host
-    // SDL capture device -- fed via EmuInstance::micFeedFinlinkAudio(),
+    // SDL capture device -- fed via EmuInstance::micFeedUnisonAudio(),
     // called from EmuThread.cpp's per-frame loop, reusing the same
     // micExtBuffer/micResample() machinery micInputType_External already
     // uses (just a different producer).
-    micInputType_Finlink,
+    micInputType_Unison,
     micInputType_MAX,
 };
 
@@ -174,12 +174,12 @@ public:
     void micStop();
     int micReadInput(melonDS::s16* data, int maxlength);
 
-    // Pushes a chunk of mono s16 samples captured from a connected finlink
+    // Pushes a chunk of mono s16 samples captured from a connected Unison
     // client's own microphone into the same buffer micInputType_External's
     // SDL capture callback (micCallback) already feeds -- no-op unless
-    // micInputType_Finlink is the currently selected mic input (see that
+    // micInputType_Unison is the currently selected mic input (see that
     // enum value's own comment).
-    void micFeedFinlinkAudio(const melonDS::s16* samples, int len);
+    void micFeedUnisonAudio(const melonDS::s16* samples, int len);
 
     QMutex renderLock;
 

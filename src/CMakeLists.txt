@@ -85,33 +85,33 @@ add_library(core STATIC
 
     blip-buf/blip_buf.c
 
-    # Vendored finlink/core (see finlink/README.md) -- the WebSocket
+    # Vendored unison/core (see unison/README.md) -- the WebSocket
     # streaming protocol library shared with the sibling dolphin-gba-stream
     # and azahar forks, used by streaming/BottomScreenStream.cpp.
-    finlink/src/deflate.c
-    finlink/src/discovery.c
-    finlink/src/handshake.c
-    finlink/src/inflate.c
-    finlink/src/json.c
-    finlink/src/protocol.c
-    finlink/src/websocket.c
-    finlink/third_party/miniz/miniz_crc32.c
-    finlink/third_party/miniz/miniz_tdef.c
-    finlink/third_party/miniz/miniz_tinfl.c
-    finlink/third_party/teeny-sha1/teeny-sha1.c
+    unison/src/deflate.c
+    unison/src/discovery.c
+    unison/src/handshake.c
+    unison/src/inflate.c
+    unison/src/json.c
+    unison/src/protocol.c
+    unison/src/websocket.c
+    unison/third_party/miniz/miniz_crc32.c
+    unison/third_party/miniz/miniz_tdef.c
+    unison/third_party/miniz/miniz_tinfl.c
+    unison/third_party/teeny-sha1/teeny-sha1.c
 
     streaming/Base64.h
     streaming/BottomScreenStream.h
     streaming/BottomScreenStream.cpp
-    streaming/FinlinkMessages.h
-    streaming/FinlinkMessages.cpp
-    streaming/FinlinkWebSocket.h)
+    streaming/UnisonMessages.h
+    streaming/UnisonMessages.cpp
+    streaming/UnisonWebSocket.h)
 
 target_include_directories(core PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/finlink/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/finlink/third_party/miniz"
-    "${CMAKE_CURRENT_SOURCE_DIR}/finlink/third_party/teeny-sha1")
+    "${CMAKE_CURRENT_SOURCE_DIR}/unison/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/unison/third_party/miniz"
+    "${CMAKE_CURRENT_SOURCE_DIR}/unison/third_party/teeny-sha1")
 
 if (ENABLE_GDBSTUB)
     message(NOTICE "Enabling GDB stub")

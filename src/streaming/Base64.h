@@ -21,9 +21,9 @@
 
 // Minimal base64 encoder, only needed for the WebSocket handshake's
 // Sec-WebSocket-Accept header (a base64(SHA1(...)) value, see
-// FinlinkWebSocket.h). core has no other use for base64 and no existing
+// UnisonWebSocket.h). core has no other use for base64 and no existing
 // encoder (Qt's QByteArray::toBase64() would do this in one line, but core
-// is deliberately kept Qt-free -- see src/finlink/README.md and
+// is deliberately kept Qt-free -- see src/unison/README.md and
 // src/debug/GdbStub.cpp, which lives in core for the same reason).
 
 #include <stddef.h>

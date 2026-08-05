@@ -103,7 +103,7 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     grpMicMode->addButton(ui->rbMicExternal, micInputType_External);
     grpMicMode->addButton(ui->rbMicNoise,    micInputType_Noise);
     grpMicMode->addButton(ui->rbMicWav,      micInputType_Wav);
-    grpMicMode->addButton(ui->rbMicFinlink,  micInputType_Finlink);
+    grpMicMode->addButton(ui->rbMicUnison,  micInputType_Unison);
 #if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
     connect(grpMicMode, SIGNAL(buttonClicked(int)), this, SLOT(onChangeMicMode(int)));
 #else
@@ -121,7 +121,7 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     // happens to be connected -- GetStream() is non-null for the whole
     // session once the feature is turned on, see NDS::SetStreamingArgs()),
     // EmuInstance::setupMicInputData() (EmuInstanceAudio.cpp) forces
-    // micInputType to Finlink regardless of the configured mode, so gray
+    // micInputType to Unison regardless of the configured mode, so gray
     // the whole mic mode group out and reflect the forced selection rather
     // than leave a choice on screen that silently has no effect.
     // Snapshotted once here at dialog-construction time, same as the
@@ -129,7 +129,7 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     if (emuActive && emuInstance->getNDS()->GetStream())
     {
         micModeForced = true;
-        grpMicMode->button(micInputType_Finlink)->setChecked(true);
+        grpMicMode->button(micInputType_Unison)->setChecked(true);
         for (QAbstractButton* btn : grpMicMode->buttons())
             btn->setEnabled(false);
         ui->cbMic->setEnabled(false);
@@ -137,7 +137,7 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
         ui->btnMicWavBrowse->setEnabled(false);
 
         const QString reason = tr("Disabled while bottom-screen streaming is enabled: the "
-                                   "microphone is forced to Finlink.");
+                                   "microphone is forced to Unison.");
         for (QAbstractButton* btn : grpMicMode->buttons())
             btn->setToolTip(reason);
     }
@@ -186,7 +186,7 @@ void AudioSettingsDialog::on_AudioSettingsDialog_accepted()
 {
     auto& cfg = emuInstance->getGlobalConfig();
     cfg.SetQString("Mic.Device", ui->cbMic->currentText());
-    // Don't persist the forced Finlink selection when the group was only
+    // Don't persist the forced Unison selection when the group was only
     // checked/grayed out because streaming is enabled (see constructor) --
     // that reflects the current runtime override, not a user choice, and
     // would otherwise silently overwrite the user's real saved preference

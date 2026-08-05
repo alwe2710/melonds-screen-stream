@@ -210,13 +210,13 @@ void EmuInstance::micOpen()
 
     if (micDevice) return;
 
-    if (micInputType == micInputType_Finlink)
+    if (micInputType == micInputType_Unison)
     {
         // No SDL capture device to open -- samples arrive via
-        // micFeedFinlinkAudio() instead (EmuThread.cpp's per-frame poll of
+        // micFeedUnisonAudio() instead (EmuThread.cpp's per-frame poll of
         // BottomScreenStream::PollMicAudio()). Still need micFreq set,
         // since micGetNumSamplesIn()'s resampling ratio depends on it --
-        // matches the rate finlink's MIC_ENABLE tells the client to
+        // matches the rate Unison's MIC_ENABLE tells the client to
         // capture at (BottomScreenStream.cpp's kStreamAudioSampleRate).
         micFreq = 48000;
         micDevice = 0;
@@ -363,7 +363,7 @@ void EmuInstance::setupMicInputData()
     // Whenever bottom-screen streaming is enabled (not just while a client
     // happens to be connected -- nds->GetStream() is non-null for the whole
     // session once the feature is turned on, see NDS::SetStreamingArgs()),
-    // the mic is forced to the Finlink input type regardless of this
+    // the mic is forced to the Unison input type regardless of this
     // setting: a locally-selected input source would silently never be
     // heard by a connected client, since nothing else forwards it there, so
     // leaving a different type "selected" but effectively moot is more
@@ -372,7 +372,7 @@ void EmuInstance::setupMicInputData()
     // condition, and AudioSettingsDialog's UI, which grays out the mic mode
     // radio buttons under the same condition).
     if (nds && nds->GetStream())
-        micInputType = micInputType_Finlink;
+        micInputType = micInputType_Unison;
 
     switch (micInputType)
     {
@@ -381,7 +381,7 @@ void EmuInstance::setupMicInputData()
             micBufferLength = 0;
             break;
         case micInputType_External:
-        case micInputType_Finlink:
+        case micInputType_Unison:
             micBuffer = micExtBuffer;
             micBufferLength = sizeof(micExtBuffer) / sizeof(s16);
             break;
@@ -402,10 +402,10 @@ void EmuInstance::setupMicInputData()
 int EmuInstance::micReadInput(s16* data, int maxlength)
 {
     int type = micInputType;
-    // Finlink-fed mic input shares micExtBuffer/micExtBufferCount with
+    // Unison-fed mic input shares micExtBuffer/micExtBufferCount with
     // External (SDL capture device) below -- same buffer/locking, just a
-    // different producer (micFeedFinlinkAudio() instead of micCallback()).
-    bool isExternalLike = (type == micInputType_External) || (type == micInputType_Finlink);
+    // different producer (micFeedUnisonAudio() instead of micCallback()).
+    bool isExternalLike = (type == micInputType_External) || (type == micInputType_Unison);
     if (isExternalLike && (micExtBufferCount == 0))
         return 0;
 
@@ -522,9 +522,9 @@ void EmuInstance::micCallback(void* data, Uint8* stream, int len)
     SDL_UnlockMutex(inst->micLock);
 }
 
-void EmuInstance::micFeedFinlinkAudio(const s16* samples, int len)
+void EmuInstance::micFeedUnisonAudio(const s16* samples, int len)
 {
-    if (micInputType != micInputType_Finlink)
+    if (micInputType != micInputType_Unison)
         return;
 
     SDL_LockMutex(micLock);
