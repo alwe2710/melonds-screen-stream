@@ -381,6 +381,31 @@ void BottomScreenStream::BeaconLoop()
 
     const std::string localHost = ProbeLocalHost();
 
+    // Bind to the specific interface localHost resolved to before sending --
+    // same fix already applied to azahar/Cemu/dolphin-gba-stream's own
+    // beacon senders (identical root cause, this one just hadn't been
+    // checked yet). On a machine with more than one active network
+    // interface (VPN, Docker/virtual adapters, Ethernet + Wi-Fi both up),
+    // leaving the socket unbound lets the OS pick whichever interface its
+    // default route for 255.255.255.255 happens to be, not necessarily the
+    // one a discovering client is actually reachable on -- the broadcast
+    // can leave via a completely different interface than the LAN the
+    // client is listening on, silently going nowhere a client will ever
+    // see. Binding pins the send to the interface localHost itself already
+    // names, which is also the address embedded in the beacon message
+    // clients use to connect back -- if that address weren't reachable,
+    // nothing would work regardless, so this can't make things worse than
+    // before. Best-effort: bind()'s return value is ignored, same reasoning
+    // as the sendto() below.
+    if (!localHost.empty())
+    {
+        struct sockaddr_in bindAddr{};
+        bindAddr.sin_family = AF_INET;
+        bindAddr.sin_port = 0;
+        inet_pton(AF_INET, localHost.c_str(), &bindAddr.sin_addr);
+        bind(beaconFd, (const struct sockaddr*)&bindAddr, sizeof(bindAddr));
+    }
+
     struct sockaddr_in broadcastAddr{};
     broadcastAddr.sin_family = AF_INET;
     broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
