@@ -34,12 +34,14 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <sstream>
 
 #include "unison/deflate.h"
 #include "unison/discovery.h"
 #include "unison/endian.h"
 #include "unison/protocol.h"
+#include "SoftwareVideoEncoder.h"
 #include "UnisonMessages.h"
 #include "UnisonWebSocket.h"
 
@@ -82,9 +84,73 @@ void ConvertBgra8ToRgb565(const uint8_t* bgra8, uint32_t width, uint32_t height,
     }
 }
 
+// RGBA8 (memory byte order R,G,B,A) counterpart to ConvertBgra8ToRgb565
+// above -- SoftwareVideoEncoder::EncodeFrame() expects that channel order
+// specifically (see its own comment), while this capture's native buffer is
+// BGRA8 (see OnFrameEnd()'s own comment). No vertical flip here either,
+// same reasoning as ConvertBgra8ToRgb565's own comment.
+void ConvertBgra8ToRgba8(const uint8_t* bgra8, uint32_t width, uint32_t height, std::vector<uint8_t>& outRgba8)
+{
+    outRgba8.resize((size_t)width * height * 4);
+    const uint32_t pixelCount = width * height;
+    for (uint32_t i = 0; i < pixelCount; i++)
+    {
+        outRgba8[i * 4 + 0] = bgra8[i * 4 + 2]; // R
+        outRgba8[i * 4 + 1] = bgra8[i * 4 + 1]; // G
+        outRgba8[i * 4 + 2] = bgra8[i * 4 + 0]; // B
+        outRgba8[i * 4 + 3] = bgra8[i * 4 + 3]; // A
+    }
+}
+
+// videoEncoder is session-local (owned by RunSession's call frame, passed by
+// reference), not a BottomScreenStream member -- encoder reference-frame
+// state must never cross sessions, same reasoning as every other per-
+// session variable RunSession already owns. Rebuilt whenever there's no
+// encoder yet (first h264/h265 frame this session) or this frame's real
+// captured size no longer matches what the current one was built for -- the
+// OpenGL renderer's scale factor can change the bottom-screen capture size
+// mid-session (see OnFrameEnd()'s own comment), the one respect in which
+// this stream type behaves like Cemu's WIIU_GAMEPAD rather than azahar's
+// fixed-320x240 N3DS_BOTTOM_SCREEN.
 bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, uint32_t height,
+                    const std::string& videoMode, std::unique_ptr<SoftwareVideoEncoder>& videoEncoder,
                     const std::atomic_bool& stop)
 {
+    if (videoMode == "h264" || videoMode == "h265")
+    {
+        if (!videoEncoder || videoEncoder->Width() != width || videoEncoder->Height() != height)
+        {
+            videoEncoder = std::make_unique<SoftwareVideoEncoder>(
+                videoMode == "h264" ? VideoCodec::H264 : VideoCodec::H265, width, height,
+                (uint32_t)kStreamFps);
+        }
+        if (videoEncoder->IsValid())
+        {
+            std::vector<uint8_t> rgba8;
+            ConvertBgra8ToRgba8(bgra8.data(), width, height, rgba8);
+
+            std::vector<uint8_t> nals;
+            if (!videoEncoder->EncodeFrame(rgba8.data(), nals))
+                return true; // Real encoder error -- skip this frame rather than kill the session.
+            if (nals.empty())
+                return true; // Encoder produced no output yet (internal buffering).
+
+            std::vector<uint8_t> message;
+            message.reserve(10 + nals.size());
+            message.push_back((uint8_t)UNISON_MSG_VIDEO);
+            AppendU32LE(message, videoEncoder->CodedWidth());
+            AppendU32LE(message, videoEncoder->CodedHeight());
+            message.push_back(videoMode == "h264" ? UNISON_VIDEO_FORMAT_H264 : UNISON_VIDEO_FORMAT_H265);
+            message.insert(message.end(), nals.begin(), nals.end());
+            return SendWebSocketBinaryFrame(fd, message, stop);
+        }
+        // Real encoder-open failure -- fall through to the raw RGB565 path
+        // below rather than send nothing for the rest of the session.
+        // ServeConnection() already reported "legacy" in session_ready for
+        // this case (see its own comment), so the client isn't expecting
+        // h264/h265 frames that would never arrive.
+    }
+
     std::vector<uint8_t> rgb565;
     ConvertBgra8ToRgb565(bgra8.data(), width, height, rgb565);
 
@@ -489,14 +555,22 @@ void BottomScreenStream::ServeConnection(int fd)
         return;
     }
 
-    if (!SendWebSocketTextFrame(fd, BuildSessionReadyMessage(), Stop))
+    // Optimistic-echo, per BuildSessionReadyMessage()'s own comment: unset/
+    // unrecognized (including "tiles", never implemented here) falls back
+    // to "legacy" up front; "h264"/"h265" are reported as requested even
+    // though SendVideoFrame() might still fail to open that encoder later
+    // this session.
+    const std::string videoMode =
+        (ack->VideoMode == "h264" || ack->VideoMode == "h265") ? ack->VideoMode : "legacy";
+
+    if (!SendWebSocketTextFrame(fd, BuildSessionReadyMessage(videoMode), Stop))
     {
         Active = false;
         closesocket(fd);
         return;
     }
 
-    RunSession(fd);
+    RunSession(fd, videoMode);
 
     Streaming = false;
     TouchPressed = false;
@@ -514,10 +588,16 @@ void BottomScreenStream::ServeConnection(int fd)
     closesocket(fd);
 }
 
-void BottomScreenStream::RunSession(int fd)
+void BottomScreenStream::RunSession(int fd, const std::string& videoMode)
 {
     Streaming = true;
     uint64_t lastSentFrameId = 0;
+    // Session-local, not a member -- see SendVideoFrame()'s own comment on
+    // why (encoder reference-frame state must never cross sessions). Left
+    // null (rather than built here) when videoMode isn't h264/h265 at all;
+    // SendVideoFrame() itself lazily constructs it on the first frame that
+    // actually needs it.
+    std::unique_ptr<SoftwareVideoEncoder> videoEncoder;
     std::vector<uint8_t> recvBuffer;
     std::array<uint8_t, 4096> readBuf{};
 
@@ -553,7 +633,7 @@ void BottomScreenStream::RunSession(int fd)
         }
         if (!frameCopy.empty())
         {
-            if (!SendVideoFrame(fd, frameCopy, frameWidth, frameHeight, Stop))
+            if (!SendVideoFrame(fd, frameCopy, frameWidth, frameHeight, videoMode, videoEncoder, Stop))
                 return;
             lastSentFrameId = currentId;
         }

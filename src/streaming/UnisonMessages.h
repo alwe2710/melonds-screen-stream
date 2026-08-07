@@ -65,11 +65,10 @@ constexpr uint32_t kMicSampleRate = 48000;
 constexpr double kStreamFps = 33513982.0 / (355.0 * 6.0 * 263.0);
 
 // video_mode: what the client requested (Unison's protocol.md "tiles"/
-// "legacy"/"h264"/"h265", empty if unset/unrecognized) -- this stream type
-// has no TILES/H264/H265 encoder, only ever sends a full raw frame (see
-// BuildSessionReadyMessage()), so this is parsed only so the server can
-// honestly report the fallback in session_ready.video_mode instead of
-// silently ignoring the request. Never actually changes server behavior.
+// "legacy"/"h264"/"h265", empty if unset/unrecognized). "h264"/"h265" get a
+// real SoftwareVideoEncoder (see BottomScreenStream.cpp's SendVideoFrame);
+// "tiles" has never been implemented here (always a full frame either way)
+// and falls back to plain raw RGB565, same as anything unset/unrecognized.
 struct HandshakeAck
 {
     int ProtocolVersion;
@@ -98,7 +97,13 @@ std::string BuildHelloMessage(uint32_t width = kStreamWidth, uint32_t height = k
 // HandshakeErrorCode::MalformedRequest.
 std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload);
 
-std::string BuildSessionReadyMessage();
+// videoMode is "h264"/"h265" if that's what hello_ack requested, "legacy"
+// otherwise -- see BottomScreenStream.cpp's ServeConnection() for the
+// optimistic-echo caveat (same tradeoff Cemu/Azahar's own ports of this
+// negotiation make: a real SoftwareVideoEncoder-open failure inside
+// SendVideoFrame() can silently fall back to raw RGB565 for the rest of
+// that session without a second, corrected session_ready).
+std::string BuildSessionReadyMessage(const std::string& videoMode);
 
 std::string BuildHandshakeErrorMessage(HandshakeErrorCode code, const std::string& detail);
 

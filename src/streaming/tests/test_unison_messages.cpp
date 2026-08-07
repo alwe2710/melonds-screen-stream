@@ -109,23 +109,27 @@ void TestParseHelloAckRejectsMalformed()
     CHECK(!ParseHelloAck(ToBytes(R"({"message":"hello_ack","requested_slot":0})")).has_value());
 }
 
-void TestBuildSessionReadyMessageAlwaysLegacy()
+void TestBuildSessionReadyMessageEchoesVideoMode()
 {
-    // The whole point of this fork's fallback story: video_mode is always
-    // "legacy" in the reply, unconditionally -- there's no way to make
-    // this fork claim tiles/h264/h265, since it genuinely can't send any
-    // of those (see BuildSessionReadyMessage()'s own comment).
-    const std::string ready_json = BuildSessionReadyMessage();
-    CHECK(ready_json.find("\"message\":\"session_ready\"") != std::string::npos);
+    // This stream type now has a real h264/h265 SoftwareVideoEncoder (see
+    // BottomScreenStream.cpp's SendVideoFrame) -- BuildSessionReadyMessage()
+    // just reports back whatever ServeConnection() decided to attempt, it
+    // doesn't itself decide "legacy" vs. anything else (see its own
+    // declaration in UnisonMessages.h).
+    for (const char* mode : {"legacy", "h264", "h265"})
+    {
+        const std::string ready_json = BuildSessionReadyMessage(mode);
+        CHECK(ready_json.find("\"message\":\"session_ready\"") != std::string::npos);
 
-    unison_session_ready parsed;
-    CHECK(unison_parse_session_ready(reinterpret_cast<const uint8_t*>(ready_json.data()), ready_json.size(),
-                                       &parsed) == UNISON_HANDSHAKE_OK);
-    CHECK(std::strcmp(parsed.video_mode, "legacy") == 0);
-    CHECK(parsed.video.width == kStreamWidth && parsed.video.height == kStreamHeight);
-    // No audio, no redirect -- see BuildSessionReadyMessage()'s own comment.
-    CHECK(!parsed.has_audio);
-    CHECK(!parsed.has_redirect);
+        unison_session_ready parsed;
+        CHECK(unison_parse_session_ready(reinterpret_cast<const uint8_t*>(ready_json.data()), ready_json.size(),
+                                           &parsed) == UNISON_HANDSHAKE_OK);
+        CHECK(std::strcmp(parsed.video_mode, mode) == 0);
+        CHECK(parsed.video.width == kStreamWidth && parsed.video.height == kStreamHeight);
+        // No audio, no redirect -- see BuildSessionReadyMessage()'s own comment.
+        CHECK(!parsed.has_audio);
+        CHECK(!parsed.has_redirect);
+    }
 }
 
 void TestBuildHandshakeErrorMessage()
@@ -147,7 +151,7 @@ int main()
     TestBuildHelloMessage();
     TestParseHelloAckVideoMode();
     TestParseHelloAckRejectsMalformed();
-    TestBuildSessionReadyMessageAlwaysLegacy();
+    TestBuildSessionReadyMessageEchoesVideoMode();
     TestBuildHandshakeErrorMessage();
     std::printf("unison_messages: all tests passed\n");
     return 0;

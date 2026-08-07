@@ -60,7 +60,20 @@ typedef enum {
      * previous frame yet for the server to diff against, and it doubles
      * as the keyframe clients need to have painted something onto their
      * framebuffer before trusting a tile patch. */
-    UNISON_VIDEO_FORMAT_TILES = 1 << 1
+    UNISON_VIDEO_FORMAT_TILES = 1 << 1,
+    /* compressed_data is a raw (not deflate-compressed) Annex-B H.264/H.265
+     * NAL bitstream instead of a decompress-then-decode RGB565/indexed
+     * block -- mutually exclusive with INDEXED/TILES above. Added here by
+     * hand (not a full re-sync of this vendored copy, see this project's
+     * unison/README.md) purely so streaming/SoftwareVideoEncoder.cpp has
+     * these two constants to write into unison_video_header.format; no
+     * other part of this vendored copy understands or decodes this format,
+     * only the client side does. Bit positions match Unison's own
+     * still-unmerged "transcoding" branch, which is where these formats
+     * (and hello_ack/session_ready's video_mode field, see UnisonMessages.h's
+     * own comment) originate. */
+    UNISON_VIDEO_FORMAT_H264 = 1 << 2,
+    UNISON_VIDEO_FORMAT_H265 = 1 << 3
 } unison_video_format;
 
 /* Video header (type=1). compressed_data points into the caller's buffer

@@ -148,23 +148,15 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
     return ack;
 }
 
-std::string BuildSessionReadyMessage()
+std::string BuildSessionReadyMessage(const std::string& videoMode)
 {
-    // Like azahar's equivalent: no real video negotiation for this stream
-    // type (fixed 256x192, small enough that no realistic client's
+    // Like azahar's equivalent: no real video *size* negotiation for this
+    // stream type (fixed 256x192, small enough that no realistic client's
     // video_limits would ever need to shrink it), no audio (this stream
     // type never sends console/speaker audio -- only mic input, which
     // isn't part of this negotiation, see UNISON_MSG_MIC_ENABLE), no
-    // redirect (single slot).
-    //
-    // video_mode is always "legacy" regardless of what was requested in
-    // hello_ack (see HandshakeAck::VideoMode's own comment) -- this stream
-    // type has no TILES/H264/H265 encoder, only ever sends a full raw frame
-    // (SendVideoFrame's hardcoded format=0, see BottomScreenStream.cpp).
-    // Reporting the honest fallback here, per Unison's docs/protocol.md
-    // "Video-mode fallback", is what lets a client that requested something
-    // else show a fallback prompt instead of silently getting legacy video
-    // with no explanation.
+    // redirect (single slot). Video *mode* (h264/h265/legacy) is a separate
+    // axis -- see this function's own declaration in the header.
     std::ostringstream out;
     out.precision(10);
     out << "{"
@@ -175,7 +167,7 @@ std::string BuildSessionReadyMessage()
         << "\"height\":" << kStreamHeight << ","
         << "\"fps\":" << kStreamFps
         << "},"
-        << "\"video_mode\":\"legacy\""
+        << "\"video_mode\":\"" << videoMode << "\""
         << "}";
     return out.str();
 }

@@ -103,6 +103,8 @@ add_library(core STATIC
     streaming/Base64.h
     streaming/BottomScreenStream.h
     streaming/BottomScreenStream.cpp
+    streaming/SoftwareVideoEncoder.h
+    streaming/SoftwareVideoEncoder.cpp
     streaming/UnisonMessages.h
     streaming/UnisonMessages.cpp
     streaming/UnisonWebSocket.h)
@@ -209,6 +211,16 @@ add_subdirectory(teakra EXCLUDE_FROM_ALL)
 # Workaround for building teakra with -O0 on Windows either failing or hanging forever
 target_compile_options(teakra PRIVATE "$<$<CONFIG:DEBUG>:-Og>")
 target_link_libraries(core PRIVATE teakra)
+
+# streaming/SoftwareVideoEncoder.cpp's h264/h265 encode path -- system
+# libraries via pkg-config, same libraries Cemu's own sibling port links via
+# vcpkg and azahar's own re-port links via pkg-config too (no vcpkg
+# manifest exists in this project either, so pkg-config against a
+# system/distro install is the equivalent here), not vendored/bundled.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(X264 REQUIRED IMPORTED_TARGET x264)
+pkg_check_modules(X265 REQUIRED IMPORTED_TARGET x265)
+target_link_libraries(core PRIVATE PkgConfig::X264 PkgConfig::X265)
 
 if (NOT MSVC)
     # MSVC has its own compiler flag syntax; if we ever support it,

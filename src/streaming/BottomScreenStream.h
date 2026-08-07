@@ -150,7 +150,14 @@ private:
     // Runs on its own thread, one per accepted connection -- never called
     // inline from AcceptLoop() itself (see this file's top comment).
     void ServeConnection(int fd);
-    void RunSession(int fd);
+    // videoMode is whichever value ServeConnection() decided this session
+    // will actually use ("h264"/"h265"/"legacy", see its own call site) --
+    // RunSession() owns the matching SoftwareVideoEncoder as a session-local
+    // (rebuilt if the captured frame size changes mid-session, e.g. a
+    // renderer switch -- see SendVideoFrame()'s own comment), not a
+    // BottomScreenStream member: encoder reference-frame state must never
+    // cross sessions.
+    void RunSession(int fd, const std::string& videoMode);
 
     // UDP discovery beacon (unison/discovery.h, docs/protocol.md's
     // "Discovery-Beacon (UDP)") -- broadcasts a unison_beacon JSON payload
