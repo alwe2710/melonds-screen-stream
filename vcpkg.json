@@ -29,6 +29,8 @@
 			"platform": "linux"
 		},
 		"faad2",
+		"x264",
+		"x265",
 		"pkgconf",
 		{ "name": "pkgconf", "host": true },
 		{ "name": "dirent", "platform": "windows" }
