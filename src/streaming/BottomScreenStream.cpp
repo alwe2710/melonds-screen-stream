@@ -154,8 +154,14 @@ bool SendFragmented(int videoFd, const sockaddr_in& dest, const std::vector<uint
 // protocol_version 4) instead of the WebSocket control connection this
 // used before -- Input/Mic stay on that TCP connection unaffected, only
 // Video (this stream type's only outgoing stream data, see this file's
-// header comment on the lack of outgoing Audio) moved.
-bool SendVideoFrame(int videoFd, const sockaddr_in& videoAddr, uint32_t frameId,
+// header comment on the lack of outgoing Audio) moved. tcpFallback reverts
+// that one exception: a client that set hello_ack.no_udp_video (docs/
+// protocol.md, "Opting out") has no dedicated UDP destination at all
+// (videoFd/videoAddr are unused in that case), so Video goes out as an
+// ordinary WebSocket binary frame on tcpFd instead, same as before
+// protocol_version 4.
+bool SendVideoFrame(bool tcpFallback, int tcpFd, const std::atomic_bool& stop, int videoFd,
+                    const sockaddr_in& videoAddr, uint32_t frameId,
                     const std::vector<uint8_t>& bgra8, uint32_t width, uint32_t height,
                     const std::string& videoMode, std::unique_ptr<SoftwareVideoEncoder>& videoEncoder)
 {
@@ -185,7 +191,8 @@ bool SendVideoFrame(int videoFd, const sockaddr_in& videoAddr, uint32_t frameId,
             AppendU32LE(message, videoEncoder->CodedHeight());
             message.push_back(videoMode == "h264" ? UNISON_VIDEO_FORMAT_H264 : UNISON_VIDEO_FORMAT_H265);
             message.insert(message.end(), nals.begin(), nals.end());
-            return SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
+            return tcpFallback ? SendWebSocketBinaryFrame(tcpFd, message, stop)
+                                : SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
         }
         // Real encoder-open failure -- fall through to the raw RGB565 path
         // below rather than send nothing for the rest of the session.
@@ -215,7 +222,8 @@ bool SendVideoFrame(int videoFd, const sockaddr_in& videoAddr, uint32_t frameId,
     message.push_back(0); // format = 0: full frame, raw (non-indexed, non-tiled) RGB565.
     message.insert(message.end(), compressed.begin(), compressed.end());
 
-    return SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
+    return tcpFallback ? SendWebSocketBinaryFrame(tcpFd, message, stop)
+                        : SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
 }
 
 // UDP "connect" (nothing actually leaves the machine for a connectionless
@@ -627,24 +635,14 @@ void BottomScreenStream::ServeConnection(int fd)
     }
 
     // Opt-out from the dedicated UDP channel (docs/protocol.md, "Dedicated
-    // video/audio channel (UDP)") -- clients/web is the one real client
-    // that ever sets this (no raw socket API in a browser at all). This
-    // stream type has no TCP fallback left to offer such a client instead
-    // -- so a client that can't use UDP genuinely cannot stream
-    // NDS_BOTTOM_SCREEN video at all right now; reject clearly rather
-    // than connect it to a session that will never show a frame.
-    if (ack->NoUdpVideo)
-    {
-        SendWebSocketTextFrame(
-            fd,
-            BuildHandshakeErrorMessage(HandshakeErrorCode::UdpVideoRequired,
-                                       "Dieser Client kann keine UDP-Verbindung aufbauen, "
-                                       "NDS_BOTTOM_SCREEN bietet aber keinen TCP-Fallback mehr an"),
-            Stop);
-        Active = false;
-        closesocket(fd);
-        return;
-    }
+    // video/audio channel (UDP)" -> "Opting out") -- clients/web is the one
+    // real client that ever sets this (no raw socket API in a browser at
+    // all). Video then stays multiplexed on this same WebSocket connection
+    // instead, the same wire format this stream type used before
+    // protocol_version 4 -- session_ready omits video_port entirely
+    // (BuildSessionReadyMessage) and WaitForVideoHello is skipped below,
+    // since there's no dedicated UDP destination to learn.
+    const bool tcpFallback = ack->NoUdpVideo;
 
     // Optimistic-echo, per BuildSessionReadyMessage()'s own comment: unset/
     // unrecognized (including "tiles", never implemented here) falls back
@@ -654,7 +652,8 @@ void BottomScreenStream::ServeConnection(int fd)
     const std::string videoMode =
         (ack->VideoMode == "h264" || ack->VideoMode == "h265") ? ack->VideoMode : "legacy";
 
-    const uint16_t videoPort = (uint16_t)(Port + kVideoPortOffset);
+    const std::optional<uint16_t> videoPort =
+        tcpFallback ? std::nullopt : std::optional<uint16_t>((uint16_t)(Port + kVideoPortOffset));
     if (!SendWebSocketTextFrame(fd, BuildSessionReadyMessage(videoMode, videoPort), Stop))
     {
         Active = false;
@@ -662,22 +661,25 @@ void BottomScreenStream::ServeConnection(int fd)
         return;
     }
 
-    // Rendezvous (docs/protocol.md, "Dedicated video/audio channel (UDP)")
-    // -- the client is expected to send a UNISON_MSG_UDP_HELLO datagram to
-    // videoPort right after receiving session_ready above; wait for it
-    // here, bounded, before ever entering RunSession(), so that function
-    // never has to handle "no client address yet" itself. A timeout here
-    // means a genuine connectivity problem, treated as a handshake failure
-    // the same as any other.
     struct sockaddr_in videoAddr{};
-    if (!WaitForVideoHello(5000, &videoAddr))
+    if (!tcpFallback)
     {
-        Active = false;
-        closesocket(fd);
-        return;
+        // Rendezvous (docs/protocol.md, "Dedicated video/audio channel
+        // (UDP)") -- the client is expected to send a UNISON_MSG_UDP_HELLO
+        // datagram to videoPort right after receiving session_ready above;
+        // wait for it here, bounded, before ever entering RunSession(), so
+        // that function never has to handle "no client address yet" itself.
+        // A timeout here means a genuine connectivity problem, treated as a
+        // handshake failure the same as any other.
+        if (!WaitForVideoHello(5000, &videoAddr))
+        {
+            Active = false;
+            closesocket(fd);
+            return;
+        }
     }
 
-    RunSession(fd, videoMode, videoAddr);
+    RunSession(fd, tcpFallback, videoMode, videoAddr);
 
     Streaming = false;
     TouchPressed = false;
@@ -695,7 +697,7 @@ void BottomScreenStream::ServeConnection(int fd)
     closesocket(fd);
 }
 
-void BottomScreenStream::RunSession(int fd, const std::string& videoMode, const sockaddr_in& videoAddr)
+void BottomScreenStream::RunSession(int fd, bool tcpFallback, const std::string& videoMode, const sockaddr_in& videoAddr)
 {
     Streaming = true;
     uint64_t lastSentFrameId = 0;
@@ -745,8 +747,8 @@ void BottomScreenStream::RunSession(int fd, const std::string& videoMode, const 
         }
         if (!frameCopy.empty())
         {
-            if (!SendVideoFrame(VideoListenFd, videoAddr, videoFrameIdCounter, frameCopy, frameWidth,
-                               frameHeight, videoMode, videoEncoder))
+            if (!SendVideoFrame(tcpFallback, fd, Stop, VideoListenFd, videoAddr, videoFrameIdCounter,
+                               frameCopy, frameWidth, frameHeight, videoMode, videoEncoder))
                 return;
             videoFrameIdCounter++;
             lastSentFrameId = currentId;

@@ -96,11 +96,6 @@ enum class HandshakeErrorCode
     VersionMismatch,
     SlotUnavailable,
     MalformedRequest,
-    // Client set hello_ack.no_udp_video, but this server has no TCP
-    // fallback for Video left to offer instead (removed when this stream
-    // type moved to the dedicated UDP channel, protocol_version 4) -- see
-    // BottomScreenStream::ServeConnection()'s own comment on this check.
-    UdpVideoRequired,
 };
 
 // width/height default to kStreamWidth/kStreamHeight (the native
@@ -124,10 +119,13 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload);
 // SendVideoFrame() can silently fall back to raw RGB565 for the rest of
 // that session without a second, corrected session_ready).
 // videoPort: the dedicated UDP video channel's port (docs/protocol.md,
-// "Dedicated video/audio channel (UDP)", protocol_version 4) -- always
-// set (every client speaking protocol_version 4 at all, per the
-// exact-match rule, already expects it).
-std::string BuildSessionReadyMessage(const std::string& videoMode, uint16_t videoPort);
+// "Dedicated video/audio channel (UDP)", protocol_version 4) -- nullopt
+// for a client that set hello_ack.no_udp_video (BottomScreenStream::
+// ServeConnection() then never bothers waiting for a UNISON_MSG_UDP_HELLO
+// rendezvous either); Video then stays multiplexed on this same WebSocket
+// connection instead, the same wire format this stream type used before
+// protocol_version 4 (docs/protocol.md, "Opting out").
+std::string BuildSessionReadyMessage(const std::string& videoMode, std::optional<uint16_t> videoPort);
 
 std::string BuildHandshakeErrorMessage(HandshakeErrorCode code, const std::string& detail);
 

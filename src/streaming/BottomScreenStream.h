@@ -165,8 +165,13 @@ private:
     // cross sessions.
     // videoAddr is this session's client address on the dedicated UDP
     // video channel, learned by WaitForVideoHello() below before
-    // RunSession() is ever called.
-    void RunSession(int fd, const std::string& videoMode, const sockaddr_in& videoAddr);
+    // RunSession() is ever called -- unused (default-constructed) when
+    // tcpFallback is true. tcpFallback: this session's client set
+    // hello_ack.no_udp_video (docs/protocol.md, "Opting out") -- Video is
+    // then sent as ordinary WebSocket binary frames on fd itself instead
+    // of via VideoListenFd/videoAddr, the same wire format this stream
+    // type used before protocol_version 4.
+    void RunSession(int fd, bool tcpFallback, const std::string& videoMode, const sockaddr_in& videoAddr);
     // Waits (bounded) on VideoListenFd for the client's UNISON_MSG_UDP_HELLO
     // rendezvous datagram (docs/protocol.md, "Dedicated video/audio channel
     // (UDP)") -- called from ServeConnection() right after session_ready

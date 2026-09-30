@@ -38,7 +38,6 @@ const char* ErrorCodeToString(HandshakeErrorCode code)
     case HandshakeErrorCode::VersionMismatch: return "version_mismatch";
     case HandshakeErrorCode::SlotUnavailable: return "slot_unavailable";
     case HandshakeErrorCode::MalformedRequest: return "malformed_request";
-    case HandshakeErrorCode::UdpVideoRequired: return "udp_video_required";
     }
     return "malformed_request";
 }
@@ -143,7 +142,7 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
     return ack;
 }
 
-std::string BuildSessionReadyMessage(const std::string& videoMode, uint16_t videoPort)
+std::string BuildSessionReadyMessage(const std::string& videoMode, std::optional<uint16_t> videoPort)
 {
     // Like azahar's equivalent: no real video *size* negotiation for this
     // stream type (fixed 256x192, small enough that no realistic client's
@@ -162,14 +161,18 @@ std::string BuildSessionReadyMessage(const std::string& videoMode, uint16_t vide
         << "\"height\":" << kStreamHeight << ","
         << "\"fps\":" << kStreamFps
         << "},"
-        << "\"video_mode\":\"" << videoMode << "\","
-        // Dedicated video channel (docs/protocol.md, "Dedicated
-        // video/audio channel (UDP)", protocol_version 4) -- presence of
-        // this key alone is what makes a client's
-        // unison_parse_session_ready() set has_video_port=1
-        // (core/src/handshake.c), no separate boolean field on the wire.
-        << "\"video_port\":" << videoPort
-        << "}";
+        << "\"video_mode\":\"" << videoMode << "\"";
+    // Dedicated video channel (docs/protocol.md, "Dedicated video/audio
+    // channel (UDP)", protocol_version 4) -- presence of this key alone is
+    // what makes a client's unison_parse_session_ready() set
+    // has_video_port=1 (core/src/handshake.c), no separate boolean field
+    // on the wire. Omitted entirely for a client that set hello_ack.
+    // no_udp_video (docs/protocol.md, "Opting out") -- Video then stays
+    // multiplexed on this same WebSocket connection instead
+    // (BottomScreenStream::RunSession's tcpFallback path).
+    if (videoPort)
+        out << ",\"video_port\":" << *videoPort;
+    out << "}";
     return out.str();
 }
 
