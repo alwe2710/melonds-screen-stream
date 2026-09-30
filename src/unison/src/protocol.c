@@ -20,6 +20,7 @@ unison_result unison_peek_type(const uint8_t *data, size_t size, unison_msg_type
         case UNISON_MSG_TEXT_INPUT_RESPONSE:
         case UNISON_MSG_MIC_ENABLE:
         case UNISON_MSG_MIC_AUDIO:
+        case UNISON_MSG_UDP_HELLO:
             *out_type = (unison_msg_type)data[0];
             return UNISON_OK;
         default:
@@ -40,6 +41,27 @@ unison_result unison_parse_video_header(const uint8_t *data, size_t size, unison
     out->format = data[9];
     out->compressed_data = data + VIDEO_HEADER_SIZE;
     out->compressed_size = size - VIDEO_HEADER_SIZE;
+    return UNISON_OK;
+}
+
+size_t unison_build_udp_fragment_header(const unison_udp_fragment_header *header,
+                                          uint8_t out_buf[UNISON_UDP_FRAGMENT_HEADER_SIZE]) {
+    out_buf[0] = header->msg_type;
+    unison_write_u32le(out_buf + 1, header->frame_id);
+    unison_write_u16le(out_buf + 5, header->fragment_index);
+    unison_write_u16le(out_buf + 7, header->fragment_count);
+    return UNISON_UDP_FRAGMENT_HEADER_SIZE;
+}
+
+unison_result unison_parse_udp_fragment_header(const uint8_t *data, size_t size,
+                                                 unison_udp_fragment_header *out) {
+    if (size < UNISON_UDP_FRAGMENT_HEADER_SIZE) {
+        return UNISON_ERR_TOO_SHORT;
+    }
+    out->msg_type = data[0];
+    out->frame_id = unison_read_u32le(data + 1);
+    out->fragment_index = unison_read_u16le(data + 5);
+    out->fragment_count = unison_read_u16le(data + 7);
     return UNISON_OK;
 }
 

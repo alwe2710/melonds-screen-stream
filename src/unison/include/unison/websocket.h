@@ -34,6 +34,24 @@ extern "C" {
  * gives up, which matters on memory-constrained homebrew targets. */
 #define UNISON_WS_MAX_FRAME_PAYLOAD (1u << 20)
 
+/* How long a caller's own send-retry loop should keep retrying a stalled
+ * socket write before giving up on the connection (same idea as
+ * unison/discovery.h's UNISON_BEACON_STALE_MS -- a single named timing
+ * constant instead of each caller hardcoding its own literal). This module
+ * stays "pure logic, no sockets" (see the file comment above) -- the retry
+ * loop itself still has to live in each caller, since it wraps a different
+ * socket type per platform (raw POSIX/Winsock fd, boost::asio, SFML, ...)
+ * and core is deliberately transport-agnostic. What drifted in practice
+ * wasn't the loop shape, which every caller already got right, but this
+ * one number: it was hardcoded separately in four places and only one of
+ * them ever got updated from an initial 3000ms (too tight -- a routine
+ * Wi-Fi hiccup can leave a send still buffered that long even though the
+ * peer is still alive, and hitting the deadline kills the whole session)
+ * to this value. Pulling just the constant in here is what actually
+ * prevents that specific kind of re-drift, without inventing a portable
+ * socket abstraction this library has otherwise never needed. */
+#define UNISON_WS_SEND_TIMEOUT_MS 10000
+
 /* --- Handshake --- */
 
 /* Base64-encodes 16 caller-supplied random bytes into a Sec-WebSocket-Key.

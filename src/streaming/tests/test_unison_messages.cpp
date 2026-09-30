@@ -116,9 +116,10 @@ void TestBuildSessionReadyMessageEchoesVideoMode()
     // just reports back whatever ServeConnection() decided to attempt, it
     // doesn't itself decide "legacy" vs. anything else (see its own
     // declaration in UnisonMessages.h).
+    constexpr uint16_t kTestVideoPort = 6860;
     for (const char* mode : {"legacy", "h264", "h265"})
     {
-        const std::string ready_json = BuildSessionReadyMessage(mode);
+        const std::string ready_json = BuildSessionReadyMessage(mode, kTestVideoPort);
         CHECK(ready_json.find("\"message\":\"session_ready\"") != std::string::npos);
 
         unison_session_ready parsed;
@@ -129,6 +130,11 @@ void TestBuildSessionReadyMessageEchoesVideoMode()
         // No audio, no redirect -- see BuildSessionReadyMessage()'s own comment.
         CHECK(!parsed.has_audio);
         CHECK(!parsed.has_redirect);
+        // Dedicated video channel (docs/protocol.md, "Dedicated
+        // video/audio channel (UDP)", protocol_version 4) -- always
+        // offered now, see BuildSessionReadyMessage()'s own comment.
+        CHECK(parsed.has_video_port);
+        CHECK(parsed.video_port == kTestVideoPort);
     }
 }
 

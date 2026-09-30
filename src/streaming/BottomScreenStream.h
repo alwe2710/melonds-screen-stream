@@ -77,6 +77,12 @@
 // micResample()/micExtBuffer machinery (see EmuInstanceAudio.cpp), the
 // same one the Qt frontend's own external-mic-device capture already uses.
 
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -157,7 +163,18 @@ private:
     // renderer switch -- see SendVideoFrame()'s own comment), not a
     // BottomScreenStream member: encoder reference-frame state must never
     // cross sessions.
-    void RunSession(int fd, const std::string& videoMode);
+    // videoAddr is this session's client address on the dedicated UDP
+    // video channel, learned by WaitForVideoHello() below before
+    // RunSession() is ever called.
+    void RunSession(int fd, const std::string& videoMode, const sockaddr_in& videoAddr);
+    // Waits (bounded) on VideoListenFd for the client's UNISON_MSG_UDP_HELLO
+    // rendezvous datagram (docs/protocol.md, "Dedicated video/audio channel
+    // (UDP)") -- called from ServeConnection() right after session_ready
+    // (with video_port) goes out, so RunSession() always starts already
+    // knowing where to send Video rather than having to handle "no client
+    // address yet" itself. Returns false on timeout/error; *outAddr is
+    // only meaningful when this returns true.
+    [[nodiscard]] bool WaitForVideoHello(int timeoutMs, sockaddr_in* outAddr);
 
     // UDP discovery beacon (unison/discovery.h, docs/protocol.md's
     // "Discovery-Beacon (UDP)") -- broadcasts a unison_beacon JSON payload
@@ -176,6 +193,15 @@ private:
     uint16_t Port;
 
     int ListenFd = -1;
+    // Dedicated video channel (docs/protocol.md, "Dedicated video/audio
+    // channel (UDP)", protocol_version 4) -- a second, always-bound UDP
+    // socket alongside ListenFd above, port = Port + kVideoPortOffset.
+    // Bound in the constructor the same way ListenFd is, so it's ready
+    // before any client ever connects, not allocated per-session. UDP, so
+    // no listen()/accept() -- datagrams just arrive once bound. Same
+    // offset convention as Cemu's WiiuGamepadStream::kVideoPortOffset.
+    static constexpr uint16_t kVideoPortOffset = 50;
+    int VideoListenFd = -1;
     std::thread AcceptThread;
     std::thread BeaconThread;
     std::atomic_bool Stop{false};

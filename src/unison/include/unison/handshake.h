@@ -25,8 +25,23 @@ extern "C" {
 
 /* Bump alongside any wire-incompatible change to the messages below --
  * mirrors GBA_STREAM_PROTOCOL_VERSION in the dolphin-gba-stream fork's
- * Core/HW/GBAStreamNetUtil.h, which must stay numerically in sync. */
-#define UNISON_PROTOCOL_VERSION 2
+ * Core/HW/GBAStreamNetUtil.h, which must stay numerically in sync.
+ *
+ * 2 -> 3: added session_ready.video_port (see unison_session_ready's own
+ * comment and docs/protocol.md's "Dedicated video connection") -- only
+ * Cemu (WIIU_GAMEPAD) and the Android client actually use it as of this
+ * bump; azahar/melonDS/dolphin-gba-stream and every other client still
+ * report/expect plain version 2 until they're updated too, so exact-match
+ * means the Android client can't connect to them again until then -- a
+ * known, accepted tradeoff for this pass (see the plan this came from).
+ *
+ * 3 -> 4: session_ready.video_port changed meaning -- a UDP port instead
+ * of a second TCP/WebSocket connection, carrying UNISON_MSG_VIDEO *and*
+ * UNISON_MSG_AUDIO now (audio moved off the control connection too), each
+ * datagram prefixed with a unison_udp_fragment_header (protocol.h) instead
+ * of WebSocket framing. See docs/protocol.md's "Dedicated video/audio
+ * channel (UDP)". Same Cemu/Android-only scope as the 2 -> 3 bump. */
+#define UNISON_PROTOCOL_VERSION 4
 
 #define UNISON_MAX_SLOTS 4
 #define UNISON_LABEL_LEN 8
@@ -35,6 +50,7 @@ extern "C" {
 #define UNISON_HOST_LEN 64
 #define UNISON_HANDSHAKE_CODE_LEN 32
 #define UNISON_HANDSHAKE_DETAIL_LEN 256
+#define UNISON_VIDEO_MODE_LEN 16
 
 typedef enum {
     UNISON_HANDSHAKE_OK = 0,
@@ -72,7 +88,17 @@ typedef struct {
 
 /* Client capabilities/limits to send back as hello_ack. wants_audio=0 skips
  * audio_limits entirely in the built JSON (see docs/protocol.md: "fehlt
- * ... wenn der Client keinen Ton möchte/kann"). */
+ * ... wenn der Client keinen Ton möchte/kann").
+ *
+ * video_mode is the client's requested video encoding: "tiles" (TILES
+ * delta-encoding + frame dedup, see unison/video_encode.h) or "legacy"
+ * (always a full, non-tiled frame -- the original, pre-dedup behavior, kept
+ * as a user-selectable fallback). Left as an empty string, video_mode is
+ * omitted from the built JSON entirely, same convention as wants_audio; a
+ * server that doesn't recognize the field (or an old client that never sets
+ * it) should default to "tiles". Always set this from a fixed literal, never
+ * from user-entered text -- unison_build_hello_ack() writes it into the
+ * JSON unescaped. */
 typedef struct {
     int requested_slot;
     uint32_t max_width;
@@ -81,12 +107,25 @@ typedef struct {
     int wants_audio;
     uint32_t max_sample_rate;
     uint8_t max_channels;
+    char video_mode[UNISON_VIDEO_MODE_LEN];
 } unison_hello_ack_request;
 
 /* Server -> client, confirms (possibly downscaled) parameters and either the
  * final slot or a redirect to reconnect elsewhere and repeat the whole
  * hello/hello_ack exchange (multi-slot stream types only, e.g. GC_GBA_LINK's
- * lobby-to-player-port hop). */
+ * lobby-to-player-port hop).
+ *
+ * video_mode is what the server actually used/will use for this session --
+ * NOT necessarily an echo of the hello_ack.video_mode the client requested,
+ * since the server may not support it (falls back to whatever it actually
+ * has). Empty means the server predates this field entirely (an
+ * unpatched/older host), which is a *different* case from the server
+ * deliberately reporting a fallback: a client should only compare this
+ * against what it requested (see docs/protocol.md, "Video-mode fallback")
+ * when this is non-empty. Treat an empty value as "no information, don't
+ * prompt the user" -- not as "tiles was granted" -- so an old host that
+ * predates this field entirely never produces a false-positive prompt,
+ * regardless of what was requested. */
 typedef struct {
     int slot;
     unison_handshake_video video;
@@ -95,6 +134,19 @@ typedef struct {
     int has_redirect;
     char redirect_host[UNISON_HOST_LEN];
     int redirect_port;
+    char video_mode[UNISON_VIDEO_MODE_LEN];
+    /* Port for a second, video-only WebSocket connection (see
+     * docs/protocol.md, "Dedicated video connection") -- absent
+     * (has_video_port = 0) means video stays multiplexed on this same
+     * connection, the only behavior any server predating this field can
+     * produce. Unlike redirect (a one-time replace: this connection
+     * closes, a new one repeats the whole hello/hello_ack exchange
+     * elsewhere), video_port names a *second*, simultaneously open
+     * connection -- no hello/hello_ack on it, just a plain WebSocket
+     * upgrade, after which it carries UNISON_MSG_VIDEO frames exclusively
+     * and nothing else ever flows on it in either direction. */
+    int has_video_port;
+    int video_port;
 } unison_session_ready;
 
 typedef struct {

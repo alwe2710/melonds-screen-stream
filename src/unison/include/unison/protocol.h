@@ -21,6 +21,11 @@ typedef enum {
     UNISON_MSG_TEXT_INPUT_RESPONSE = 5, /* client->server, see unison_text_input_response */
     UNISON_MSG_MIC_ENABLE = 6,          /* server->client, see unison_mic_enable */
     UNISON_MSG_MIC_AUDIO = 7,           /* client->server, see unison_parse_mic_audio_frame */
+    /* client->server, UDP-only, see unison_udp_fragment_header's own
+     * comment -- the client's rendezvous "hello" so the server learns its
+     * source address/port; empty payload, fragment_index/fragment_count
+     * both 0. Never appears on the TCP control connection. */
+    UNISON_MSG_UDP_HELLO = 8,
 } unison_msg_type;
 
 typedef enum {
@@ -46,7 +51,20 @@ typedef enum {
 
 /* Bitmask selected per-frame by the server (whichever is cheapest for that
  * frame) describing the decompressed block's layout -- see
- * unison_decode_video_frame(). All four combinations must be handled. */
+ * unison_decode_video_frame(). All four combinations of INDEXED/TILES must
+ * be handled.
+ *
+ * H264/H265 are mutually exclusive with INDEXED/TILES (and with each
+ * other): when either is set, compressed_data is NOT raw-deflate at all --
+ * it is a raw Annex-B NAL byte stream (start-code `00 00 00 01` prefixed)
+ * straight from the server's encoder, fed directly to a platform video
+ * decoder (e.g. Android's MediaCodec, video/avc or video/hevc) instead of
+ * unison_inflate_raw()/unison_decode_video_frame(). Unlike TILES, which
+ * self-corrects every frame against the previous one, an H264/H265 stream
+ * carries decoder-side reference-frame state that must never desync from
+ * the encoder's -- see docs/protocol.md's "Keyframe discipline" section for
+ * the periodic forced-keyframe convention that bounds how long a dropped
+ * frame can cause visible corruption for. */
 typedef enum {
     /* Pixels are palette indices (1 byte each) preceded by a palette,
      * instead of raw u16le RGB565. */
@@ -61,26 +79,21 @@ typedef enum {
      * as the keyframe clients need to have painted something onto their
      * framebuffer before trusting a tile patch. */
     UNISON_VIDEO_FORMAT_TILES = 1 << 1,
-    /* compressed_data is a raw (not deflate-compressed) Annex-B H.264/H.265
-     * NAL bitstream instead of a decompress-then-decode RGB565/indexed
-     * block -- mutually exclusive with INDEXED/TILES above. Added here by
-     * hand (not a full re-sync of this vendored copy, see this project's
-     * unison/README.md) purely so streaming/SoftwareVideoEncoder.cpp has
-     * these two constants to write into unison_video_header.format; no
-     * other part of this vendored copy understands or decodes this format,
-     * only the client side does. Bit positions match Unison's own
-     * still-unmerged "transcoding" branch, which is where these formats
-     * (and hello_ack/session_ready's video_mode field, see UnisonMessages.h's
-     * own comment) originate. */
+    /* compressed_data is a raw H.264 Annex-B bitstream (see this enum's own
+     * comment above). */
     UNISON_VIDEO_FORMAT_H264 = 1 << 2,
+    /* compressed_data is a raw H.265/HEVC Annex-B bitstream. */
     UNISON_VIDEO_FORMAT_H265 = 1 << 3
 } unison_video_format;
 
 /* Video header (type=1). compressed_data points into the caller's buffer
- * (no copy) and is a raw-deflate compressed block whose content depends on
- * `format` -- see unison_video_format. Decompress with
- * unison_inflate_raw() (size it with unison_video_max_inflated_size()),
- * then decode with unison_decode_video_frame(). */
+ * (no copy). For INDEXED/TILES (or neither -- a full frame), it's a
+ * raw-deflate compressed block whose content depends on `format` -- see
+ * unison_video_format. Decompress with unison_inflate_raw() (size it with
+ * unison_video_max_inflated_size()), then decode with
+ * unison_decode_video_frame(). For H264/H265, it's an Annex-B bitstream fed
+ * directly to a platform video decoder instead -- see unison_video_format's
+ * own comment. */
 typedef struct {
     uint32_t width;
     uint32_t height;
@@ -97,6 +110,47 @@ typedef struct {
     const uint8_t *samples; /* s16le, read with unison_read_s16le() */
     size_t sample_count;
 } unison_audio_frame;
+
+/* UDP fragment header (docs/protocol.md, "Dedicated video/audio channel
+ * (UDP)") -- every datagram on that channel starts with this 9-byte
+ * header, server->client for UNISON_MSG_VIDEO/UNISON_MSG_AUDIO,
+ * client->server for the single-shot UNISON_MSG_UDP_HELLO rendezvous
+ * packet. Framing only: the payload following the header is exactly the
+ * same message body a TCP-delivered frame of that msg_type would carry
+ * (e.g. SendVideoFrame's own message bytes) split across fragment_count
+ * datagrams -- this struct/its build+parse functions never look inside
+ * that payload, same "framing is shared, body content stays
+ * host-specific" split as unison_ws_build_frame/unison_ws_parse_frame
+ * already draw for the TCP side.
+ *
+ * frame_id is assigned by the sender, monotonically increasing per
+ * msg_type (video and audio each count independently) -- lets a receiver
+ * detect a new frame starting before the previous one's fragments all
+ * arrived (drop the incomplete old one, same "newest wins" policy TILES
+ * dedup and the decode-backlog logic already use) without needing any
+ * acknowledgement/retransmission machinery. fragment_index/fragment_count
+ * are both 0 for UNISON_MSG_UDP_HELLO's empty-payload packet. */
+typedef struct {
+    uint8_t msg_type; /* unison_msg_type */
+    uint32_t frame_id;
+    uint16_t fragment_index; /* 0-based */
+    uint16_t fragment_count; /* total fragments for this frame_id, >= 1 (0 only for UDP_HELLO) */
+} unison_udp_fragment_header;
+
+#define UNISON_UDP_FRAGMENT_HEADER_SIZE 9
+
+/* Target max UDP datagram size (header + payload), chosen conservatively
+ * under typical MTU (1500) minus IP/UDP overhead and some margin for
+ * VPNs/tunnels -- see docs/protocol.md, "Dedicated video/audio channel
+ * (UDP)". Every fragment except possibly the last carries EXACTLY
+ * UNISON_UDP_MAX_FRAGMENT_PAYLOAD bytes; the sender only ever shortens the
+ * final fragment. This is a real wire invariant, not an implementation
+ * detail of any one sender: a receiver assembling out-of-order fragments
+ * must place fragment i at byte offset i * UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+ * without having seen every earlier fragment yet, which only works if
+ * both sides agree on this exact constant. */
+#define UNISON_UDP_MAX_DATAGRAM_SIZE 1200
+#define UNISON_UDP_MAX_FRAGMENT_PAYLOAD (UNISON_UDP_MAX_DATAGRAM_SIZE - UNISON_UDP_FRAGMENT_HEADER_SIZE)
 
 #define UNISON_INPUT_FRAME_SIZE 3
 
@@ -226,6 +280,23 @@ unison_result unison_parse_touch_and_buttons_frame(const uint8_t *data, size_t s
 /* Reads the leading type byte of a server->client message without consuming
  * the rest. `size` must be >= 1. */
 unison_result unison_peek_type(const uint8_t *data, size_t size, unison_msg_type *out_type);
+
+/* Writes out_buf[UNISON_UDP_FRAGMENT_HEADER_SIZE] (caller must have room).
+ * Returns the number of bytes written, always
+ * UNISON_UDP_FRAGMENT_HEADER_SIZE. */
+size_t unison_build_udp_fragment_header(const unison_udp_fragment_header *header,
+                                          uint8_t out_buf[UNISON_UDP_FRAGMENT_HEADER_SIZE]);
+
+/* Parses a UDP fragment header from the start of a received datagram.
+ * `size` must be >= UNISON_UDP_FRAGMENT_HEADER_SIZE. Unlike
+ * unison_parse_video_header and friends, this does NOT validate msg_type
+ * against unison_msg_type at all (not even via unison_peek_type) -- the
+ * header's own msg_type byte is read verbatim into out->msg_type, letting
+ * the caller reject an unrecognized value however it prefers (e.g. by
+ * feeding it to unison_peek_type separately) rather than this generic
+ * framing layer hardcoding that policy. */
+unison_result unison_parse_udp_fragment_header(const uint8_t *data, size_t size,
+                                                 unison_udp_fragment_header *out);
 
 /* Parses a type=1 message. `data` must start at the type byte. */
 unison_result unison_parse_video_header(const uint8_t *data, size_t size, unison_video_header *out);

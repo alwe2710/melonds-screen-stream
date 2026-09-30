@@ -42,7 +42,15 @@
 namespace melonDS::Streaming
 {
 
-constexpr int kProtocolVersion = 2;
+// 2 -> 4: session_ready.video_port now names a dedicated UDP channel
+// carrying Video (this stream type has no outgoing Audio -- only Mic
+// stays on the TCP control connection, see BottomScreenStream.cpp's own
+// header comment), instead of Video staying multiplexed on that same
+// connection. See docs/protocol.md's "Dedicated video/audio channel
+// (UDP)". Skips the intermediate protocol_version 3 (a second, still-TCP
+// video connection) entirely -- that step was superseded before this
+// fork ever adopted it.
+constexpr int kProtocolVersion = 4;
 constexpr char kStreamType[] = "NDS_BOTTOM_SCREEN";
 // Dedicated encoding, not "n3ds_touch_and_buttons" -- the DS has no analog
 // stick at all, so reusing unison_extended_input would mean always
@@ -103,7 +111,11 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload);
 // negotiation make: a real SoftwareVideoEncoder-open failure inside
 // SendVideoFrame() can silently fall back to raw RGB565 for the rest of
 // that session without a second, corrected session_ready).
-std::string BuildSessionReadyMessage(const std::string& videoMode);
+// videoPort: the dedicated UDP video channel's port (docs/protocol.md,
+// "Dedicated video/audio channel (UDP)", protocol_version 4) -- always
+// set (every client speaking protocol_version 4 at all, per the
+// exact-match rule, already expects it).
+std::string BuildSessionReadyMessage(const std::string& videoMode, uint16_t videoPort);
 
 std::string BuildHandshakeErrorMessage(HandshakeErrorCode code, const std::string& detail);
 

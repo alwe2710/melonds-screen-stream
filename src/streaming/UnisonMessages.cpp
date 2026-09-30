@@ -148,7 +148,7 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
     return ack;
 }
 
-std::string BuildSessionReadyMessage(const std::string& videoMode)
+std::string BuildSessionReadyMessage(const std::string& videoMode, uint16_t videoPort)
 {
     // Like azahar's equivalent: no real video *size* negotiation for this
     // stream type (fixed 256x192, small enough that no realistic client's
@@ -167,7 +167,13 @@ std::string BuildSessionReadyMessage(const std::string& videoMode)
         << "\"height\":" << kStreamHeight << ","
         << "\"fps\":" << kStreamFps
         << "},"
-        << "\"video_mode\":\"" << videoMode << "\""
+        << "\"video_mode\":\"" << videoMode << "\","
+        // Dedicated video channel (docs/protocol.md, "Dedicated
+        // video/audio channel (UDP)", protocol_version 4) -- presence of
+        // this key alone is what makes a client's
+        // unison_parse_session_ready() set has_video_port=1
+        // (core/src/handshake.c), no separate boolean field on the wire.
+        << "\"video_port\":" << videoPort
         << "}";
     return out.str();
 }

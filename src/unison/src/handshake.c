@@ -116,7 +116,19 @@ unison_handshake_result unison_parse_hello(const uint8_t *data, size_t size, uni
 size_t unison_build_hello_ack(const unison_hello_ack_request *req, char *out_buf,
                                 size_t out_capacity) {
     int n;
-    if (req->wants_audio) {
+    const int has_video_mode = req->video_mode[0] != '\0';
+
+    if (req->wants_audio && has_video_mode) {
+        n = snprintf(out_buf, out_capacity,
+                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
+                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
+                     "\"max_bitrate_kbps\":null},"
+                     "\"audio_limits\":{\"max_sample_rate\":%u,\"max_channels\":%u},"
+                     "\"video_mode\":\"%s\"}",
+                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
+                     (unsigned)req->max_height, req->max_fps, (unsigned)req->max_sample_rate,
+                     (unsigned)req->max_channels, req->video_mode);
+    } else if (req->wants_audio) {
         n = snprintf(out_buf, out_capacity,
                      "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
                      "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
@@ -125,6 +137,14 @@ size_t unison_build_hello_ack(const unison_hello_ack_request *req, char *out_buf
                      UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
                      (unsigned)req->max_height, req->max_fps, (unsigned)req->max_sample_rate,
                      (unsigned)req->max_channels);
+    } else if (has_video_mode) {
+        n = snprintf(out_buf, out_capacity,
+                     "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
+                     "\"video_limits\":{\"max_width\":%u,\"max_height\":%u,\"max_fps\":%.4f,"
+                     "\"max_bitrate_kbps\":null},"
+                     "\"video_mode\":\"%s\"}",
+                     UNISON_PROTOCOL_VERSION, req->requested_slot, (unsigned)req->max_width,
+                     (unsigned)req->max_height, req->max_fps, req->video_mode);
     } else {
         n = snprintf(out_buf, out_capacity,
                      "{\"message\":\"hello_ack\",\"protocol_version\":%d,\"requested_slot\":%d,"
@@ -153,6 +173,7 @@ unison_handshake_result unison_parse_session_ready(const uint8_t *data, size_t s
         (int)unison_json_get_number(text, unison_json_find_member(text, obj.start, obj.end, "slot"));
     out->video = parse_video(text, obj.start, obj.end);
     out->has_audio = parse_audio(text, obj.start, obj.end, &out->audio);
+    get_string_field(text, obj.start, obj.end, "video_mode", out->video_mode, sizeof(out->video_mode));
 
     const unison_json_span redirect_span =
         unison_json_find_member(text, obj.start, obj.end, "redirect");
@@ -162,6 +183,13 @@ unison_handshake_result unison_parse_session_ready(const uint8_t *data, size_t s
                           sizeof(out->redirect_host));
         out->redirect_port = (int)unison_json_get_number(
             text, unison_json_find_member(text, redirect_span.start, redirect_span.end, "port"));
+    }
+
+    const unison_json_span video_port_span =
+        unison_json_find_member(text, obj.start, obj.end, "video_port");
+    if (video_port_span.found) {
+        out->has_video_port = 1;
+        out->video_port = (int)unison_json_get_number(text, video_port_span);
     }
 
     return UNISON_HANDSHAKE_OK;

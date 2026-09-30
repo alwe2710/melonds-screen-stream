@@ -102,6 +102,43 @@ void ConvertBgra8ToRgba8(const uint8_t* bgra8, uint32_t width, uint32_t height, 
     }
 }
 
+// Splits `message` (a complete UNISON_MSG_VIDEO body, e.g. what
+// SendVideoFrame below builds) across fragment_count datagrams, each
+// prefixed with a 9-byte unison_udp_fragment_header (core/include/unison/
+// protocol.h) -- docs/protocol.md's "Dedicated video/audio channel (UDP)",
+// same framing Cemu's own SendFragmented (WiiuGamepadStream.cpp) uses.
+// Every fragment but the last is exactly UNISON_UDP_MAX_FRAGMENT_PAYLOAD
+// bytes -- a wire invariant the receiver's reassembly depends on, see that
+// macro's own comment.
+bool SendFragmented(int videoFd, const sockaddr_in& dest, const std::vector<uint8_t>& message,
+                    unison_msg_type type, uint32_t frameId)
+{
+    const size_t fragmentCount =
+        message.empty() ? 1 : (message.size() + UNISON_UDP_MAX_FRAGMENT_PAYLOAD - 1) / UNISON_UDP_MAX_FRAGMENT_PAYLOAD;
+    std::vector<uint8_t> datagram;
+    for (size_t i = 0; i < fragmentCount; i++)
+    {
+        const size_t offset = i * UNISON_UDP_MAX_FRAGMENT_PAYLOAD;
+        const size_t chunkLen = std::min<size_t>(UNISON_UDP_MAX_FRAGMENT_PAYLOAD, message.size() - offset);
+
+        unison_udp_fragment_header header{};
+        header.msg_type = (uint8_t)type;
+        header.frame_id = frameId;
+        header.fragment_index = (uint16_t)i;
+        header.fragment_count = (uint16_t)fragmentCount;
+
+        datagram.resize(UNISON_UDP_FRAGMENT_HEADER_SIZE + chunkLen);
+        unison_build_udp_fragment_header(&header, datagram.data());
+        if (chunkLen > 0)
+            memcpy(datagram.data() + UNISON_UDP_FRAGMENT_HEADER_SIZE, message.data() + offset, chunkLen);
+
+        if (sendto(videoFd, (const char*)datagram.data(), (int)datagram.size(), 0,
+                   (const struct sockaddr*)&dest, sizeof(dest)) < 0)
+            return false;
+    }
+    return true;
+}
+
 // videoEncoder is session-local (owned by RunSession's call frame, passed by
 // reference), not a BottomScreenStream member -- encoder reference-frame
 // state must never cross sessions, same reasoning as every other per-
@@ -112,9 +149,15 @@ void ConvertBgra8ToRgba8(const uint8_t* bgra8, uint32_t width, uint32_t height, 
 // mid-session (see OnFrameEnd()'s own comment), the one respect in which
 // this stream type behaves like Cemu's WIIU_GAMEPAD rather than azahar's
 // fixed-320x240 N3DS_BOTTOM_SCREEN.
-bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, uint32_t height,
-                    const std::string& videoMode, std::unique_ptr<SoftwareVideoEncoder>& videoEncoder,
-                    const std::atomic_bool& stop)
+//
+// Sends over videoFd/videoAddr (the dedicated UDP video channel,
+// protocol_version 4) instead of the WebSocket control connection this
+// used before -- Input/Mic stay on that TCP connection unaffected, only
+// Video (this stream type's only outgoing stream data, see this file's
+// header comment on the lack of outgoing Audio) moved.
+bool SendVideoFrame(int videoFd, const sockaddr_in& videoAddr, uint32_t frameId,
+                    const std::vector<uint8_t>& bgra8, uint32_t width, uint32_t height,
+                    const std::string& videoMode, std::unique_ptr<SoftwareVideoEncoder>& videoEncoder)
 {
     if (videoMode == "h264" || videoMode == "h265")
     {
@@ -142,7 +185,7 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, u
             AppendU32LE(message, videoEncoder->CodedHeight());
             message.push_back(videoMode == "h264" ? UNISON_VIDEO_FORMAT_H264 : UNISON_VIDEO_FORMAT_H265);
             message.insert(message.end(), nals.begin(), nals.end());
-            return SendWebSocketBinaryFrame(fd, message, stop);
+            return SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
         }
         // Real encoder-open failure -- fall through to the raw RGB565 path
         // below rather than send nothing for the rest of the session.
@@ -172,7 +215,7 @@ bool SendVideoFrame(int fd, const std::vector<uint8_t>& bgra8, uint32_t width, u
     message.push_back(0); // format = 0: full frame, raw (non-indexed, non-tiled) RGB565.
     message.insert(message.end(), compressed.begin(), compressed.end());
 
-    return SendWebSocketBinaryFrame(fd, message, stop);
+    return SendFragmented(videoFd, videoAddr, message, UNISON_MSG_VIDEO, frameId);
 }
 
 // UDP "connect" (nothing actually leaves the machine for a connectionless
@@ -313,6 +356,32 @@ BottomScreenStream::BottomScreenStream(melonDS::NDS& nds, uint16_t port) : NDS(n
     }
     SocketSetNonBlocking(ListenFd);
 
+    // Dedicated video channel (docs/protocol.md, "Dedicated video/audio
+    // channel (UDP)", protocol_version 4) -- bound here, once, same
+    // lifetime as ListenFd above, not allocated per-session.
+    VideoListenFd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (VideoListenFd < 0)
+    {
+        Log(LogLevel::Error, "[Stream] couldn't create video socket\n");
+        closesocket(ListenFd);
+        ListenFd = -1;
+        return;
+    }
+    struct sockaddr_in videoAddr{};
+    videoAddr.sin_family = AF_INET;
+    videoAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    videoAddr.sin_port = htons((uint16_t)(Port + kVideoPortOffset));
+    if (bind(VideoListenFd, (const struct sockaddr*)&videoAddr, sizeof(videoAddr)) < 0)
+    {
+        Log(LogLevel::Error, "[Stream] couldn't bind video socket to port %d\n", Port + kVideoPortOffset);
+        closesocket(VideoListenFd);
+        VideoListenFd = -1;
+        closesocket(ListenFd);
+        ListenFd = -1;
+        return;
+    }
+    SocketSetNonBlocking(VideoListenFd);
+
     AcceptThread = std::thread([this] { AcceptLoop(); });
     BeaconThread = std::thread([this] { BeaconLoop(); });
 
@@ -324,6 +393,8 @@ BottomScreenStream::~BottomScreenStream()
     Stop = true;
     if (ListenFd >= 0)
         closesocket(ListenFd);
+    if (VideoListenFd >= 0)
+        closesocket(VideoListenFd);
     if (AcceptThread.joinable())
         AcceptThread.join();
     if (BeaconThread.joinable())
@@ -563,14 +634,30 @@ void BottomScreenStream::ServeConnection(int fd)
     const std::string videoMode =
         (ack->VideoMode == "h264" || ack->VideoMode == "h265") ? ack->VideoMode : "legacy";
 
-    if (!SendWebSocketTextFrame(fd, BuildSessionReadyMessage(videoMode), Stop))
+    const uint16_t videoPort = (uint16_t)(Port + kVideoPortOffset);
+    if (!SendWebSocketTextFrame(fd, BuildSessionReadyMessage(videoMode, videoPort), Stop))
     {
         Active = false;
         closesocket(fd);
         return;
     }
 
-    RunSession(fd, videoMode);
+    // Rendezvous (docs/protocol.md, "Dedicated video/audio channel (UDP)")
+    // -- the client is expected to send a UNISON_MSG_UDP_HELLO datagram to
+    // videoPort right after receiving session_ready above; wait for it
+    // here, bounded, before ever entering RunSession(), so that function
+    // never has to handle "no client address yet" itself. A timeout here
+    // means a genuine connectivity problem, treated as a handshake failure
+    // the same as any other.
+    struct sockaddr_in videoAddr{};
+    if (!WaitForVideoHello(5000, &videoAddr))
+    {
+        Active = false;
+        closesocket(fd);
+        return;
+    }
+
+    RunSession(fd, videoMode, videoAddr);
 
     Streaming = false;
     TouchPressed = false;
@@ -588,10 +675,15 @@ void BottomScreenStream::ServeConnection(int fd)
     closesocket(fd);
 }
 
-void BottomScreenStream::RunSession(int fd, const std::string& videoMode)
+void BottomScreenStream::RunSession(int fd, const std::string& videoMode, const sockaddr_in& videoAddr)
 {
     Streaming = true;
     uint64_t lastSentFrameId = 0;
+    // Fragment header frame_id (docs/protocol.md's own, distinct concept
+    // from FrameId, which just detects "is there a new captured frame to
+    // send at all") -- counts video *messages actually sent* this session,
+    // independent of the capture-dirty-check above.
+    uint32_t videoFrameIdCounter = 0;
     // Session-local, not a member -- see SendVideoFrame()'s own comment on
     // why (encoder reference-frame state must never cross sessions). Left
     // null (rather than built here) when videoMode isn't h264/h265 at all;
@@ -633,8 +725,10 @@ void BottomScreenStream::RunSession(int fd, const std::string& videoMode)
         }
         if (!frameCopy.empty())
         {
-            if (!SendVideoFrame(fd, frameCopy, frameWidth, frameHeight, videoMode, videoEncoder, Stop))
+            if (!SendVideoFrame(VideoListenFd, videoAddr, videoFrameIdCounter, frameCopy, frameWidth,
+                               frameHeight, videoMode, videoEncoder))
                 return;
+            videoFrameIdCounter++;
             lastSentFrameId = currentId;
         }
 
@@ -709,6 +803,45 @@ void BottomScreenStream::RunSession(int fd, const std::string& videoMode)
 
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
     }
+}
+
+bool BottomScreenStream::WaitForVideoHello(int timeoutMs, sockaddr_in* outAddr)
+{
+    if (VideoListenFd < 0)
+        return false;
+
+    uint8_t buf[UNISON_UDP_FRAGMENT_HEADER_SIZE];
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (Stop)
+            return false;
+
+        struct sockaddr_in senderAddr{};
+        socklen_t senderAddrSize = sizeof(senderAddr);
+        const int received = recvfrom(VideoListenFd, (char*)buf, sizeof(buf), 0,
+                                       (struct sockaddr*)&senderAddr, &senderAddrSize);
+        if (received >= 0)
+        {
+            unison_udp_fragment_header header{};
+            if ((size_t)received >= UNISON_UDP_FRAGMENT_HEADER_SIZE &&
+                unison_parse_udp_fragment_header(buf, (size_t)received, &header) == UNISON_OK &&
+                header.msg_type == UNISON_MSG_UDP_HELLO)
+            {
+                *outAddr = senderAddr;
+                return true;
+            }
+            // Anything else on this port (a stray/malformed packet, or a
+            // second hello from a different sender racing this one) is
+            // simply ignored -- keep waiting for a valid one until the
+            // deadline, rather than failing the whole handshake over it.
+            continue;
+        }
+        if (!SocketWouldBlock())
+            return false; // Listening socket closed (destructor) or errored.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false; // Timed out.
 }
 
 }
