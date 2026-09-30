@@ -73,10 +73,12 @@ constexpr uint32_t kMicSampleRate = 48000;
 constexpr double kStreamFps = 33513982.0 / (355.0 * 6.0 * 263.0);
 
 // video_mode: what the client requested (Unison's protocol.md "tiles"/
-// "legacy"/"h264"/"h265", empty if unset/unrecognized). "h264"/"h265" get a
-// real SoftwareVideoEncoder (see BottomScreenStream.cpp's SendVideoFrame);
-// "tiles" has never been implemented here (always a full frame either way)
-// and falls back to plain raw RGB565, same as anything unset/unrecognized.
+// "legacy"/"h264"/"h265", empty if unset/unrecognized) -- this stream type
+// has no raw (TILES/legacy) fallback at all any more (see
+// BottomScreenStream.cpp's SendVideoFrame() own comment; raw/tiling stays
+// only for GC_GBA_LINK, whose native low-res pixel-art content actually
+// benefits from it), so ServeConnection() normalizes anything but an
+// explicit "h265" request to "h264".
 struct HandshakeAck
 {
     int ProtocolVersion;
@@ -112,12 +114,13 @@ std::string BuildHelloMessage(uint32_t width = kStreamWidth, uint32_t height = k
 // HandshakeErrorCode::MalformedRequest.
 std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload);
 
-// videoMode is "h264"/"h265" if that's what hello_ack requested, "legacy"
-// otherwise -- see BottomScreenStream.cpp's ServeConnection() for the
-// optimistic-echo caveat (same tradeoff Cemu/Azahar's own ports of this
-// negotiation make: a real SoftwareVideoEncoder-open failure inside
-// SendVideoFrame() can silently fall back to raw RGB565 for the rest of
-// that session without a second, corrected session_ready).
+// videoMode is "h264" unless hello_ack explicitly requested "h265" (no raw
+// fallback exists any more to land on instead) -- see
+// BottomScreenStream.cpp's ServeConnection() for the optimistic-echo
+// caveat (same tradeoff Cemu/Azahar's own ports of this negotiation make:
+// a real SoftwareVideoEncoder-open failure inside SendVideoFrame() can
+// silently skip sending video for the rest of that session without a
+// second, corrected session_ready).
 // videoPort: the dedicated UDP video channel's port (docs/protocol.md,
 // "Dedicated video/audio channel (UDP)", protocol_version 4) -- nullopt
 // for a client that set hello_ack.no_udp_video (BottomScreenStream::

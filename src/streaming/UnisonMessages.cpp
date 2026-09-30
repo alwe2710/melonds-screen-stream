@@ -149,8 +149,9 @@ std::string BuildSessionReadyMessage(const std::string& videoMode, std::optional
     // video_limits would ever need to shrink it), no audio (this stream
     // type never sends console/speaker audio -- only mic input, which
     // isn't part of this negotiation, see UNISON_MSG_MIC_ENABLE), no
-    // redirect (single slot). Video *mode* (h264/h265/legacy) is a separate
-    // axis -- see this function's own declaration in the header.
+    // redirect (single slot). Video *mode* (h264/h265, no raw fallback any
+    // more) is a separate axis -- see this function's own declaration in
+    // the header.
     std::ostringstream out;
     out.precision(10);
     out << "{"
