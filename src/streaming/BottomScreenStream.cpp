@@ -626,6 +626,26 @@ void BottomScreenStream::ServeConnection(int fd)
         return;
     }
 
+    // Opt-out from the dedicated UDP channel (docs/protocol.md, "Dedicated
+    // video/audio channel (UDP)") -- clients/web is the one real client
+    // that ever sets this (no raw socket API in a browser at all). This
+    // stream type has no TCP fallback left to offer such a client instead
+    // -- so a client that can't use UDP genuinely cannot stream
+    // NDS_BOTTOM_SCREEN video at all right now; reject clearly rather
+    // than connect it to a session that will never show a frame.
+    if (ack->NoUdpVideo)
+    {
+        SendWebSocketTextFrame(
+            fd,
+            BuildHandshakeErrorMessage(HandshakeErrorCode::UdpVideoRequired,
+                                       "Dieser Client kann keine UDP-Verbindung aufbauen, "
+                                       "NDS_BOTTOM_SCREEN bietet aber keinen TCP-Fallback mehr an"),
+            Stop);
+        Active = false;
+        closesocket(fd);
+        return;
+    }
+
     // Optimistic-echo, per BuildSessionReadyMessage()'s own comment: unset/
     // unrecognized (including "tiles", never implemented here) falls back
     // to "legacy" up front; "h264"/"h265" are reported as requested even

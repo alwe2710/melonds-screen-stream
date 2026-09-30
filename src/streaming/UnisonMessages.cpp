@@ -22,6 +22,7 @@
 #include <cstring>
 #include <sstream>
 
+#include "unison/handshake.h"
 #include "unison/json.h"
 
 namespace melonDS::Streaming
@@ -37,6 +38,7 @@ const char* ErrorCodeToString(HandshakeErrorCode code)
     case HandshakeErrorCode::VersionMismatch: return "version_mismatch";
     case HandshakeErrorCode::SlotUnavailable: return "slot_unavailable";
     case HandshakeErrorCode::MalformedRequest: return "malformed_request";
+    case HandshakeErrorCode::UdpVideoRequired: return "udp_video_required";
     }
     return "malformed_request";
 }
@@ -134,17 +136,10 @@ std::optional<HandshakeAck> ParseHelloAck(const std::vector<uint8_t>& payload)
     HandshakeAck ack;
     ack.ProtocolVersion = (int)unison_json_get_number(text, versionSpan);
     ack.RequestedSlot = (int)unison_json_get_number(text, slotSpan);
-    // 16, not UNISON_VIDEO_MODE_LEN: src/unison/'s vendored unison_core
-    // predates hello_ack.video_mode/UNISON_VIDEO_MODE_LEN existing at all
-    // (it was last hand-synced from Unison's main branch, see
-    // src/unison/README.md -- video_mode itself only exists on Unison's
-    // still-unmerged transcoding branch). Matches the value
-    // UNISON_VIDEO_MODE_LEN has on transcoding today; switch this to the
-    // real constant once src/unison/ is re-synced past that point (same
-    // situation as UnisonWebSocket.h's UNISON_WS_SEND_TIMEOUT_MS comment).
-    char videoMode[16];
+    char videoMode[UNISON_VIDEO_MODE_LEN];
     if (unison_json_get_string(text, unison_json_find_member(text, obj.start, obj.end, "video_mode"), videoMode, sizeof(videoMode)) != (size_t)-1)
         ack.VideoMode = videoMode;
+    ack.NoUdpVideo = unison_json_get_bool(text, unison_json_find_member(text, obj.start, obj.end, "no_udp_video"));
     return ack;
 }
 
